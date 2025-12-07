@@ -1,0 +1,283 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="theme-color" content="#030712" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>RockHound-GO</title>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/7543/7543166.png">
+    
+    <!-- Preload critical resources -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" href="https://cdn.tailwindcss.com" as="script">
+    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" as="style">
+    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script">
+    <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" as="style">
+    <!-- Preload for 3D model (placeholder) -->
+    <link rel="preload" href="https://aistudiocdn.com/assets/rock.glb" as="fetch" crossOrigin="anonymous">
+    <!-- Preload for Scanner Audio Cues -->
+    <link rel="preload" href="/audio/optimal_ping.mp3" as="audio">
+    <link rel="preload" href="/audio/capture_shutter.mp3" as="audio">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+    <style>
+      :root {
+        --glass-border: rgba(255, 255, 255, 0.08);
+        --glass-bg: rgba(3, 7, 18, 0.6);
+        --glass-highlight: rgba(255, 255, 255, 0.05);
+        --neon-indigo: #6366f1;
+        --neon-cyan: #06b6d4;
+        --neon-amber: #f59e0b;
+      }
+      
+      html, body, #root {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #030712;
+        color: #f3f4f6;
+        overscroll-behavior-y: none;
+        -webkit-font-smoothing: antialiased;
+        background-attachment: fixed;
+      }
+
+      /* Fluid Background Animation */
+      .fluid-bg {
+          position: fixed;
+          inset: 0;
+          background-color: #030712; /* Base dark color */
+          overflow: hidden; /* Only hide overflow for the background itself */
+      }
+
+      .fluid-bg::before,
+      .fluid-bg::after {
+          content: '';
+          position: absolute;
+          border-radius: 50%;
+          filter: blur(100px); /* Increased blur for more fluid look */
+          opacity: 0.05; /* Even more subtle */
+          animation-iteration-count: infinite;
+          animation-timing-function: ease-in-out;
+      }
+
+      .fluid-bg::before {
+          background: radial-gradient(circle, var(--neon-indigo), transparent 60%);
+          width: 1000px; /* Larger */
+          height: 1000px;
+          top: -40%; /* More off-screen */
+          left: -40%;
+          animation: fluid-move-one 30s infinite alternate; /* Slower */
+      }
+
+      .fluid-bg::after {
+          background: radial-gradient(circle, var(--neon-cyan), transparent 60%);
+          width: 900px;
+          height: 900px;
+          bottom: -40%;
+          right: -40%;
+          animation: fluid-move-two 35s infinite alternate-reverse; /* Slower */
+      }
+
+      @keyframes fluid-move-one {
+          0% { transform: translate(0, 0) scale(1); opacity: 0.05; }
+          33% { transform: translate(10%, 15%) scale(1.1); opacity: 0.07; }
+          66% { transform: translate(-10%, -15%) scale(0.9); opacity: 0.03; }
+          100% { transform: translate(0, 0) scale(1); opacity: 0.05; }
+      }
+
+      @keyframes fluid-move-two {
+          0% { transform: translate(0, 0) scale(1); opacity: 0.05; }
+          33% { transform: translate(-15%, -10%) scale(0.95); opacity: 0.03; }
+          66% { transform: translate(15%, 10%) scale(1.15); opacity: 0.08; }
+          100% { transform: translate(0, 0) scale(1); opacity: 0.05; }
+      }
+
+      /* Futuristic Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.03); /* Lighter, more visible track */
+        border-radius: 3px;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(99, 102, 241, 0.5); /* Neon indigo thumb */
+        border-radius: 3px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--neon-cyan); /* Cyan on hover */
+      }
+
+      .no-scrollbar::-webkit-scrollbar { display: none; }
+      .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      
+      .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+      .pt-safe { padding-top: env(safe-area-inset-top); }
+
+      /* Animation Utilities */
+      .glass-panel {
+        background: var(--glass-bg);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid var(--glass-border);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+      }
+      
+      .glass-card {
+        background: linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
+        backdrop-filter: blur(10px);
+        border: 1px solid var(--glass-border);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      }
+
+      .glass-card:hover {
+        border-color: rgba(99, 102, 241, 0.3);
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
+        background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+      }
+
+      .text-glow {
+        text-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+      }
+
+      /* Scanline Effect - now within App.tsx for better layering control */
+      .scanline {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.2) 50%);
+        background-size: 100% 4px;
+        pointer-events: none;
+        opacity: 0.1;
+      }
+
+      /* Global app container for full bleed and positioning */
+      #root {
+        position: relative;
+        /* #root should not have a z-index, let App.tsx control the main app z-index */
+      }
+
+      /* New animations for Scanner component feedback */
+      @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+      }
+      @keyframes spin-reverse {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(-360deg); }
+      }
+      @keyframes pulse-fast {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+      }
+      @keyframes radial-pulse {
+          0%, 100% { transform: scale(0.8); opacity: 0.6; }
+          50% { transform: scale(1.1); opacity: 1; }
+      }
+      @keyframes scan-grid {
+        0% { background-position: 0 0; }
+        100% { background-position: 0 100%; }
+      }
+      @keyframes scan { /* For the moving scan line */
+        0% { top: 0% } 
+        100% { top: 100% } 
+      }
+      
+      .animate-spin-slow { animation: spin-slow 5s linear infinite; }
+      .animate-spin-reverse { animation: spin-reverse 3s linear infinite reverse; }
+      .animate-pulse-fast { animation: pulse-fast 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+      .animate-radial-pulse { animation: radial-pulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+      .animate-scan-grid { animation: scan-grid 3s linear infinite; }
+      .animate-scan-line { animation: scan 2s linear infinite; }
+
+
+      /* Parallax effect for Collection images */
+      .parallax-bg {
+        position: absolute;
+        inset: -10px; /* Slightly larger than parent to allow movement */
+        object-fit: cover;
+        transition: transform 0.1s ease-out; /* Smooth movement */
+        will-change: transform; /* Optimize for animation */
+      }
+      
+      /* Clover Overlay Animations */
+      @keyframes idle {
+        0%, 100% {
+          transform: translateY(0) rotateZ(0deg) scale(1);
+        }
+        25% {
+          transform: translateY(-0.05%) rotateZ(0.02deg) scale(1.0005);
+        }
+        50% {
+          transform: translateY(0%) rotateZ(0deg) scale(1.001);
+        }
+        75% {
+          transform: translateY(-0.05%) rotateZ(-0.02deg) scale(1.0005);
+        }
+      }
+
+      @keyframes converse-nod {
+        0%, 100% {
+          transform: translateY(0) rotateX(0deg);
+        }
+        30% {
+          transform: translateY(-0.5%) rotateX(0.5deg);
+        }
+        60% {
+          transform: translateY(0.5%) rotateX(-0.5deg);
+        }
+      }
+
+      .animate-idle {
+        animation: idle 12s ease-in-out infinite;
+      }
+
+      .animate-converse-nod {
+          animation: converse-nod 3s ease-in-out infinite;
+      }
+
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.6.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
+    "@react-three/fiber": "https://unpkg.com/@react-three/fiber@8.16.8/dist/react-three-fiber.mjs",
+    "@react-three/drei": "https://unpkg.com/@react-three/drei@9.106.0/dist/react-three-drei.mjs",
+    "three/": "https://aistudiocdn.com/three@^0.181.2/"
+  }
+}
+</script>
+</head>
+  <body>
+    <div id="fluid-background-container" class="fluid-bg"></div>
+    <div id="root"></div>
+  </body>
+</html>

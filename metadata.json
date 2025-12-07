@@ -1,0 +1,8 @@
+{
+  "name": "Copy of RockHound-GO",
+  "description": "The ultimate AI-powered rock identifier and collection game. Snap photos of rocks, identify them instantly with Gemini, and build your geological compendium.",
+  "requestFramePermissions": [
+    "camera",
+    "geolocation"
+  ]
+}
