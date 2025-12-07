@@ -1,25 +1,21 @@
-
-
-import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 'react';
 import { User } from '../services/api';
 import { generateRockSpeech, generateCloverDialogue } from '../services/geminiService';
-import { Flower, Trophy, Map, Sparkles, Loader2, X } from 'lucide-react';
+import { Flower, Trophy, Map, Sparkles, Loader2, X, Activity, Radio, Cpu } from 'lucide-react';
 import { decode, decodeAudioData } from '../services/audioUtils';
 import toast from 'react-hot-toast';
 
-// Lazy load the 3D model for performance
 const Clover3DModel = lazy(() => import('./Clover3DModel').then(module => ({ default: module.Clover3DModel })));
 
+// -- LOCAL AUDIO CONTEXT --
+const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
 interface CloverOverlayProps {
   user: User;
   onDismiss: () => void;
-  currentView: string; // Passed from App to give context-aware tours
+  currentView: string;
   initialMode?: 'INTRO' | 'MENU' | 'TOUR' | 'CHALLENGE' | 'REWARD';
 }
-
-// Create a single AudioContext instance for the component.
-const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
 
 export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, currentView, initialMode = 'INTRO' }) => {
   const [displayedText, setDisplayedText] = useState('');
@@ -27,50 +23,70 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const [isThinking, setIsThinking] = useState(false);
   const [opacity, setOpacity] = useState(0);
   const [interactionState, setInteractionState] = useState<'SCRIPT' | 'MENU'>('SCRIPT');
-  const [backgroundVideoError, setBackgroundVideoError] = useState(false); // For background video
   
-  // Lip Sync State
+  // Lip Sync & Audio Viz
   const [currentViseme, setCurrentViseme] = useState(0);
+  const [audioAmplitude, setAudioAmplitude] = useState(0); // For waveform visualization
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const animationFrameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const visemeDataRef = useRef<{time: number, value: number}[]>([]);
   const audioPlaybackTimeRef = useRef(0);
 
-
-  // Logic for what Clover is currently doing
   const [activeMode, setActiveMode] = useState<'INTRO' | 'TOUR' | 'CHALLENGE' | 'REWARD'>(initialMode);
   const currentScriptResolve = useRef<(() => void) | null>(null);
 
+  // FX Sound Engine
+  const playFx = useCallback((type: 'open' | 'close' | 'type') => {
+    if (audioContext.state === 'suspended') audioContext.resume();
+    const osc = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    
+    if (type === 'open') {
+        osc.frequency.setValueAtTime(200, audioContext.currentTime);
+        osc.frequency.linearRampToValueAtTime(600, audioContext.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+    } else if (type === 'close') {
+        osc.frequency.setValueAtTime(400, audioContext.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.2);
+    } else {
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(800, audioContext.currentTime);
+        gain.gain.setValueAtTime(0.01, audioContext.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.03);
+    }
+
+    osc.connect(gain);
+    gain.connect(audioContext.destination);
+    osc.start();
+    osc.stop(audioContext.currentTime + 0.3);
+  }, []);
 
   useEffect(() => {
-    // Fade in entrance
-    const timer = setTimeout(() => setOpacity(1), 100);
+    playFx('open');
+    const timer = setTimeout(() => setOpacity(1), 50);
     
-    // Router Logic
     const init = async () => {
-        if (initialMode === 'INTRO') {
-            await playIntroScript();
-        } else if (initialMode === 'TOUR') {
-            await playTourScript();
-        } else if (initialMode === 'CHALLENGE') {
-            await playChallengeScript();
-        } else if (initialMode === 'REWARD') {
-            await playRewardScript();
-        } else { // MENU mode
+        if (initialMode === 'INTRO') await playIntroScript();
+        else if (initialMode === 'TOUR') await playTourScript();
+        else if (initialMode === 'CHALLENGE') await playChallengeScript();
+        else if (initialMode === 'REWARD') await playRewardScript();
+        else { 
             setInteractionState('MENU');
-            setDisplayedText(`Ready to assist, ${user.username}. What do you need?`);
+            setDisplayedText(`System Ready. Awaiting input, Operator ${user.username}.`);
         }
     };
-
     init();
 
     return () => {
         clearTimeout(timer);
         stopAudio();
     };
-  }, [initialMode, currentView, user]); // Added user and currentView to dependencies for adaptive dialogue
+  }, [initialMode, currentView, user]);
 
-  // --- AUDIO & LIP SYNC ENGINE ---
   const stopAudio = () => {
       if (audioSourceRef.current) {
         audioSourceRef.current.stop();
@@ -82,12 +98,13 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
           animationFrameRef.current = null;
       }
       setCurrentViseme(0);
+      setAudioAmplitude(0);
       setIsTalking(false);
       audioPlaybackTimeRef.current = 0;
   };
 
   const playAudioWithLipSync = async (text: string) => {
-      stopAudio(); // Ensure any previous audio is stopped
+      stopAudio();
       try {
           setIsTalking(true);
           const { audioData, visemes } = await generateRockSpeech(text);
@@ -96,25 +113,32 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
           const audioBytes = decode(audioData);
           const buffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
 
-          if (audioContext.state === 'suspended') {
-            await audioContext.resume();
-          }
+          if (audioContext.state === 'suspended') await audioContext.resume();
 
           const source = audioContext.createBufferSource();
           source.buffer = buffer;
-          source.connect(audioContext.destination);
+          
+          // Analyzer for visualizer
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 32;
+          analyserRef.current = analyser;
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+          source.connect(analyser);
+          analyser.connect(audioContext.destination);
 
           const startTime = audioContext.currentTime;
 
-          const animateVisemes = () => {
-            if (!audioSourceRef.current || audioSourceRef.current.buffer === null) {
-                setCurrentViseme(0); // Ensure mouth closes if audio stops unexpectedly
+          const animate = () => {
+            if (!audioSourceRef.current) {
+                setCurrentViseme(0);
+                setAudioAmplitude(0);
                 return;
             }
-            audioPlaybackTimeRef.current = (audioContext.currentTime - startTime) * 1000; // current time in ms
+            audioPlaybackTimeRef.current = (audioContext.currentTime - startTime) * 1000;
             
-            // Find the viseme that should be active at the current elapsed time
-            let activeViseme = 0; // Default to closed mouth
+            // Viseme Logic
+            let activeViseme = 0;
             for (let i = visemeDataRef.current.length - 1; i >= 0; i--) {
                 if (visemeDataRef.current[i].time <= audioPlaybackTimeRef.current) {
                     activeViseme = visemeDataRef.current[i].value;
@@ -122,11 +146,17 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
                 }
             }
             setCurrentViseme(activeViseme);
-            animationFrameRef.current = requestAnimationFrame(animateVisemes);
+
+            // Waveform Logic
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            setAudioAmplitude(average);
+
+            animationFrameRef.current = requestAnimationFrame(animate);
           };
 
           source.onended = () => {
-              stopAudio(); // Resets talking state, viseme, and cancels animation frame
+              stopAudio();
               if (currentScriptResolve.current) {
                 currentScriptResolve.current();
                 currentScriptResolve.current = null;
@@ -135,19 +165,16 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
           
           source.start();
           audioSourceRef.current = source;
-          animateVisemes();
+          animate();
 
           return new Promise<void>((resolve) => {
               currentScriptResolve.current = resolve;
           });
 
       } catch (e: any) {
-          console.error("Lip sync failed, falling back to text", e);
+          console.error("Audio error", e);
           setIsTalking(false);
-          if (e.isQuotaError) {
-              toast.error(`AI busy (quota hit). Please try again in a minute or consider upgrading your plan.`, { duration: 5000 });
-          }
-          await typeLine(text); // Fallback to typewriter effect
+          await typeLine(text);
           if (currentScriptResolve.current) {
             currentScriptResolve.current();
             currentScriptResolve.current = null;
@@ -155,27 +182,20 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
       }
   };
 
-  // --- SCRIPT PLAYBACK ENGINE ---
+  // --- SCRIPT LOGIC (Simplified for brevity) ---
   const playScript = async (lines: string[]) => {
       setInteractionState('SCRIPT');
       for (const line of lines) {
           setDisplayedText(line);
-          try {
-            await playAudioWithLipSync(line);
-          } catch (e: any) {
-            console.error("Failed to play audio with lip sync, showing text directly", e);
-            // Error handling for playAudioWithLipSync already shows toast
-            await typeLine(line); // Ensure text is displayed even if audio fails after retries
-          }
-          await new Promise(r => setTimeout(r, 500)); // Short pause between sentences
+          try { await playAudioWithLipSync(line); } 
+          catch { await typeLine(line); }
+          await new Promise(r => setTimeout(r, 300));
       }
       
-      // Determine next state
-      if (activeMode === 'INTRO' || activeMode === 'TOUR') {
-          handleClose();
-      } else { // For CHALLENGE, REWARD, or if invoked from menu
+      if (['INTRO', 'TOUR'].includes(activeMode)) handleClose();
+      else {
           setInteractionState('MENU');
-          setDisplayedText("Anything else?");
+          setDisplayedText("Awaiting command.");
       }
   };
 
@@ -183,99 +203,43 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
       setActiveMode('INTRO');
       setIsThinking(true);
       try {
-        const script = await generateCloverDialogue('INTRO', {
-            username: user.username,
-            level: user.level
-        });
+        const script = await generateCloverDialogue('INTRO', { username: user.username, level: user.level });
         setIsThinking(false);
         await playScript(script);
-      } catch (e: any) {
-        setIsThinking(false);
-        toast.error(e.isQuotaError ? "AI busy (quota hit). Try again later." : "Failed to generate intro dialogue.");
-        handleClose();
-      }
+      } catch { setIsThinking(false); handleClose(); }
   };
 
+  // ... (Other script handlers: playTourScript, playChallengeScript, etc. remain similar in logic, just updated calls) ...
   const playTourScript = async () => {
-      setActiveMode('TOUR');
-      setIsThinking(true);
-      setDisplayedText("Analyzing current view...");
-      
+      setActiveMode('TOUR'); setIsThinking(true); setDisplayedText("Scanning interface topography...");
       try {
-        const script = await generateCloverDialogue('TOUR', {
-            view: currentView,
-            username: user.username,
-            level: user.level
-        });
-        
-        setIsThinking(false);
-        await playScript(script);
-      } catch (e: any) {
-        setIsThinking(false);
-        toast.error(e.isQuotaError ? "AI busy (quota hit). Try again later." : "Failed to generate tour dialogue.");
-        handleClose();
-      }
+        const script = await generateCloverDialogue('TOUR', { view: currentView, username: user.username, level: user.level });
+        setIsThinking(false); await playScript(script);
+      } catch { setIsThinking(false); handleClose(); }
   };
 
   const playChallengeScript = async () => {
-      setActiveMode('CHALLENGE');
-      setIsThinking(true);
-      setDisplayedText("Accessing Bounty Board...");
-
+      setActiveMode('CHALLENGE'); setIsThinking(true); setDisplayedText("Decrypting bounty protocols...");
       try {
-        const script = await generateCloverDialogue('CHALLENGE', {
-            username: user.username,
-            level: user.level
-        });
-
-        setIsThinking(false);
-        await playScript(script);
-      } catch (e: any) {
-        setIsThinking(false);
-        toast.error(e.isQuotaError ? "AI busy (quota hit). Try again later." : "Failed to generate challenge.");
-        handleClose();
-      }
+        const script = await generateCloverDialogue('CHALLENGE', { username: user.username, level: user.level });
+        setIsThinking(false); await playScript(script);
+      } catch { setIsThinking(false); handleClose(); }
   };
 
   const playRewardScript = async () => {
-      setActiveMode('REWARD');
-      setIsThinking(true);
-      setDisplayedText("Validating submission...");
-      
+      setActiveMode('REWARD'); setIsThinking(true); setDisplayedText("Verifying credits transfer...");
       try {
-        const script = await generateCloverDialogue('REWARD', {
-            username: user.username,
-            level: user.level
-        });
-        
-        setIsThinking(false);
-        await playScript(script);
-      } catch (e: any) {
-        setIsThinking(false);
-        toast.error(e.isQuotaError ? "AI busy (quota hit). Try again later." : "Failed to generate reward message.");
-        handleClose();
-      }
+        const script = await generateCloverDialogue('REWARD', { username: user.username, level: user.level });
+        setIsThinking(false); await playScript(script);
+      } catch { setIsThinking(false); handleClose(); }
   };
 
   const playStatusScript = async () => {
-      setInteractionState('SCRIPT'); // Switch to script mode for status update
-      setIsThinking(true);
-      setDisplayedText("Checking your geological records...");
-
+      setInteractionState('SCRIPT'); setIsThinking(true); setDisplayedText("Accessing personnel records...");
       try {
-        const script = await generateCloverDialogue('STATUS', {
-            username: user.username,
-            level: user.level,
-            xp: user.xp
-        });
-
-        setIsThinking(false);
-        await playScript(script);
-      } catch (e: any) {
-        setIsThinking(false);
-        toast.error(e.isQuotaError ? "AI busy (quota hit). Try again later." : "Failed to get status update.");
-        handleClose();
-      }
+        const script = await generateCloverDialogue('STATUS', { username: user.username, level: user.level, xp: user.xp });
+        setIsThinking(false); await playScript(script);
+      } catch { setIsThinking(false); handleClose(); }
   };
 
   const typeLine = (line: string) => {
@@ -284,6 +248,7 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
           let i = 0;
           const interval = setInterval(() => {
               setDisplayedText(line.substring(0, i + 1));
+              playFx('type');
               i++;
               if (i >= line.length) {
                   clearInterval(interval);
@@ -296,97 +261,40 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
 
   const handleClose = () => {
       setOpacity(0);
+      playFx('close');
       stopAudio();
       setTimeout(onDismiss, 500);
   };
+
+  // --- RENDER HELPERS ---
+  const isReward = activeMode === 'REWARD';
+  const isTour = activeMode === 'TOUR';
+  const isChallenge = activeMode === 'CHALLENGE';
   
-  const handleCompleteChallenge = () => {
-    // In a real app, this would be triggered by a game event (e.g., finding the rock)
-    // For demo, we simulate completion and transition to REWARD mode
-    playRewardScript();
-  };
-
-
-  const isRewardMode = activeMode === 'REWARD';
-  const isTourMode = activeMode === 'TOUR';
-  
-  const borderColor = isRewardMode ? 'border-yellow-500/50' : isTourMode ? 'border-blue-500/50' : 'border-emerald-800/50';
-  const nameColor = isRewardMode ? 'text-yellow-400' : isTourMode ? 'text-blue-400' : 'text-emerald-500';
-  const iconColor = isRewardMode ? 'text-yellow-400' : isTourMode ? 'text-blue-400' : 'text-emerald-500';
-
-  // Advanced Viseme mapping for realistic mouth shapes (used by Clover3DModel)
-  // This function is kept here as a reference, but the actual rendering is in Clover3DModel
-  const getMouthStyle = (viseme: number) => {
-      let clipPath = 'ellipse(50% 10% at 50% 50%)'; // Default Closed
-      let opacity = 0.6;
-      let background = 'radial-gradient(circle at center, #3e1c1c 0%, #1a0505 100%)';
-
-      switch (viseme) {
-          case 0: // Silence, P, B, M (Closed)
-              clipPath = 'ellipse(40% 5% at 50% 50%)';
-              opacity = 0.5;
-              break;
-          case 1: // EH, AH (Mid Open)
-              clipPath = 'ellipse(45% 20% at 50% 50%)';
-              opacity = 0.8;
-              break;
-          case 3: // O, U (Rounded)
-              clipPath = 'circle(25% at 50% 50%)';
-              opacity = 0.9;
-              break;
-          case 6: // S, Z, T (Teeth/Narrow)
-              clipPath = 'inset(15% 10% 15% 10% round 20%)';
-              opacity = 0.7;
-              break;
-          case 18: // F, V (Lip Tuck)
-              clipPath = 'ellipse(40% 10% at 50% 60%)'; // Lower lip focus
-              opacity = 0.7;
-              break;
-          default: // Generic Talk
-              clipPath = 'ellipse(45% 15% at 50% 50%)';
-              opacity = 0.7;
-              break;
-      }
-      return { 
-          clipPath, 
-          opacity, 
-          background,
-          transition: 'clip-path 50ms ease-out, opacity 50ms ease-out' 
-      };
-  };
-
-  const backgroundVideoSource = "https://videos.pexels.com/video-files/4782033/4782033-hd_1920_1080_25fps.mp4"; 
-  const backgroundPoster = "https://images.pexels.com/photos/167699/pexels-photo-167699.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=2";
+  const accentColor = isReward ? 'text-yellow-400' : isTour ? 'text-cyan-400' : isChallenge ? 'text-purple-400' : 'text-emerald-400';
+  const borderColor = isReward ? 'border-yellow-500/50' : isTour ? 'border-cyan-500/50' : isChallenge ? 'border-purple-500/50' : 'border-emerald-500/50';
+  const shadowColor = isReward ? 'shadow-yellow-500/20' : isTour ? 'shadow-cyan-500/20' : isChallenge ? 'shadow-purple-500/20' : 'shadow-emerald-500/20';
 
   return (
-    <div 
-        className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-1000`}
-        style={{ opacity }}
-    >
-        <div className={`absolute inset-0 -z-20 overflow-hidden pointer-events-none bg-black`}>
-            {/* High-quality background video loop */}
-            {backgroundVideoError ? (
-              <img src={backgroundPoster} alt="Forest Background" className={`absolute inset-0 w-full h-full object-cover opacity-80`} />
-            ) : (
-              <video 
-                  autoPlay loop muted playsInline
-                  onError={() => setBackgroundVideoError(true)}
-                  className={`absolute inset-0 w-full h-full object-cover opacity-80`}
-                  src={backgroundVideoSource}
-                  poster={backgroundPoster}
-              >
-                Your browser does not support the video tag.
-              </video>
-            )}
-            <div className={`absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/30`} />
-            {isRewardMode && <div className={`absolute inset-0 bg-yellow-500/10 mix-blend-overlay animate-pulse`} />}
-            {isTourMode && <div className={`absolute inset-0 bg-blue-500/10 mix-blend-overlay`} />}
-        </div>
+    <div className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-500`} style={{ opacity }}>
+        <style>{`
+            .scanline-overlay {
+                background: linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0) 50%, rgba(0,0,0,0.2) 50%, rgba(0,0,0,0.2));
+                background-size: 100% 4px;
+            }
+            @keyframes hologram-drift { 0% { transform: translateY(0); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0); } }
+        `}</style>
 
-        <div className={`relative z-0 h-[90vh] w-full max-w-2xl flex items-end justify-center overflow-hidden pointer-events-none`}>
-             <div className={`relative origin-bottom transition-all duration-500 ${!isTalking ? 'animate-idle' : 'animate-converse-nod'}`}>
-                 {/* Clover 3D Model Integration */}
-                 <Suspense fallback={<Loader2 className={`w-12 h-12 text-indigo-500 animate-spin`} />}>
+        {/* Global Darkener */}
+        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={handleClose} />
+
+        {/* 3D Container */}
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center pb-32">
+             <div className="w-full max-w-lg aspect-square relative animate-[hologram-drift_6s_ease-in-out_infinite]">
+                 {/* Holo Projector Base Light */}
+                 <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-64 h-12 bg-[radial-gradient(ellipse_at_center,var(--tw-gradient-stops))] from-${isReward ? 'yellow' : 'cyan'}-500/40 to-transparent blur-xl`} />
+                 
+                 <Suspense fallback={<div className="flex items-center justify-center h-full"><Loader2 className={`w-12 h-12 ${accentColor} animate-spin`} /></div>}>
                    <Clover3DModel 
                      isTalking={isTalking}
                      currentViseme={currentViseme}
@@ -396,79 +304,94 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
              </div>
         </div>
 
-        <div className={`absolute bottom-12 left-6 right-6 max-w-xl mx-auto pointer-events-auto`}>
-            <div className={`bg-gray-900/80 backdrop-blur-md p-6 rounded-3xl shadow-2xl relative overflow-hidden transition-all duration-500 border ${borderColor} ${isRewardMode ? 'shadow-yellow-500/20' : isTourMode ? 'shadow-blue-500/20' : ''}`}>
-                <div className={`flex items-center gap-3 mb-3`}>
-                    {isRewardMode ? <Trophy className={`w-5 h-5 ${iconColor} animate-bounce`} /> : isTourMode ? <Map className={`w-5 h-5 ${iconColor} animate-pulse`} /> : <Flower className={`w-5 h-5 ${iconColor}`} />}
-                    <span className={`${nameColor} font-bold text-xs tracking-[0.2em] transition-colors`}>CLOVER COLE</span>
-                    <div className={`ml-auto flex items-center gap-2`}>
-                        {isThinking && (
-                            <div className={`flex items-center gap-1 text-xs text-gray-400`}>
-                                <Loader2 className={`w-3 h-3 animate-spin`} />
-                                <span>Thinking...</span>
-                            </div>
-                        )}
-                        {isTalking && (
-                            <div className={`flex gap-1 items-end h-4`}>
-                                <div className={`w-1 ${isRewardMode ? 'bg-yellow-500/80' : isTourMode ? 'bg-blue-500/80' : 'bg-emerald-500/80'} animate-[bounce_0.5s_infinite] h-full`} />
-                                <div className={`w-1 ${isRewardMode ? 'bg-yellow-500/80' : isTourMode ? 'bg-blue-500/80' : 'bg-emerald-500/80'} animate-[bounce_0.7s_infinite] h-2/3`} />
-                                <div className={`w-1 ${isRewardMode ? 'bg-yellow-500/80' : isTourMode ? 'bg-blue-500/80' : 'bg-emerald-500/80'} animate-[bounce_0.6s_infinite] h-full`} />
-                            </div>
-                        )}
+        {/* Tactical Dialogue Console */}
+        <div className="relative w-full max-w-2xl px-6 pb-12 pointer-events-auto">
+            <div className={`bg-[#050a10]/90 backdrop-blur-xl border ${borderColor} rounded-t-3xl p-1 relative overflow-hidden shadow-2xl ${shadowColor} transition-all duration-500`}>
+                
+                {/* Tech Deco Headers */}
+                <div className="h-1 w-full bg-gradient-to-r from-transparent via-current to-transparent opacity-50 mb-1" />
+                <div className="flex justify-between items-center px-4 py-2 border-b border-white/5 bg-white/5">
+                    <div className="flex items-center gap-2">
+                        <Activity className={`w-4 h-4 ${accentColor} animate-pulse`} />
+                        <span className={`text-[10px] font-mono uppercase tracking-widest ${accentColor}`}>AI_CORE_ONLINE</span>
+                    </div>
+                    <div className="flex gap-1">
+                        {[1,2,3].map(i => <div key={i} className={`w-1.5 h-1.5 rounded-full ${isThinking ? 'bg-white animate-bounce' : 'bg-gray-700'}`} style={{ animationDelay: `${i * 0.1}s` }} />)}
                     </div>
                 </div>
-                <div className={`min-h-[3.5rem] mb-4`}>
-                    <p className={`text-gray-200 text-lg leading-relaxed font-medium font-sans`}>
-                        {displayedText}
-                    </p>
+
+                <div className="p-6 relative">
+                    <div className="absolute inset-0 scanline-overlay pointer-events-none opacity-20" />
+                    
+                    {/* Main Text Area */}
+                    <div className="min-h-[80px] mb-6 flex items-start gap-4">
+                        <div className={`mt-1 p-2 rounded bg-${isReward ? 'yellow' : 'cyan'}-900/20 border border-${isReward ? 'yellow' : 'cyan'}-500/30`}>
+                            {isReward ? <Trophy className={`w-5 h-5 ${accentColor}`} /> : <Cpu className={`w-5 h-5 ${accentColor}`} />}
+                        </div>
+                        <div className="flex-1">
+                            <h3 className={`text-xs font-bold ${accentColor} mb-1 tracking-[0.2em]`}>CLOVER.AI</h3>
+                            <p className="text-gray-200 text-lg font-medium leading-relaxed font-sans text-shadow-sm">
+                                {displayedText}
+                                <span className="inline-block w-2 h-5 ml-1 bg-current align-middle animate-pulse" />
+                            </p>
+                        </div>
+                    </div>
+
+                    {/* Audio Waveform Visualization */}
+                    {isTalking && (
+                        <div className="h-8 flex items-center justify-center gap-1 mb-4 opacity-50">
+                            {Array.from({ length: 20 }).map((_, i) => (
+                                <div 
+                                    key={i} 
+                                    className={`w-1 bg-current rounded-full transition-all duration-75 ${accentColor}`}
+                                    style={{ 
+                                        height: `${Math.max(10, Math.min(100, audioAmplitude * (Math.random() + 0.5)))}%`,
+                                        opacity: Math.max(0.3, audioAmplitude / 255)
+                                    }} 
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Interaction Grid */}
+                    {interactionState === 'MENU' && !isThinking && (
+                        <div className="grid grid-cols-2 gap-3 animate-in slide-in-from-bottom-4 fade-in duration-300">
+                            <MenuButton icon={<Map size={16} />} label="INTERFACE GUIDE" sub="Walkthrough" onClick={playTourScript} color="cyan" />
+                            <MenuButton icon={<Trophy size={16} />} label="NEW BOUNTY" sub="Get Challenge" onClick={playChallengeScript} color="purple" />
+                            <MenuButton icon={<Radio size={16} />} label="STATUS REPORT" sub="My Progress" onClick={playStatusScript} color="emerald" />
+                            <MenuButton icon={<X size={16} />} label="TERMINATE LINK" sub="Close" onClick={handleClose} color="red" />
+                        </div>
+                    )}
+
+                    {activeMode === 'CHALLENGE' && interactionState === 'SCRIPT' && !isThinking && (
+                        <button onClick={() => { playFx('open'); handleCompleteChallenge(); }} className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/20 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] animate-in fade-in slide-in-from-bottom-2">
+                            <Trophy className="w-5 h-5" /> 
+                            <span>UPLOAD COMPLETION DATA</span>
+                        </button>
+                    )}
                 </div>
-                {interactionState === 'MENU' && !isThinking && (
-                    <div className={`grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-bottom-4 duration-300`}>
-                        <button onClick={playTourScript} className={`flex items-center gap-2 p-3 bg-gray-800/50 hover:bg-emerald-900/30 border border-gray-700 hover:border-emerald-500/50 rounded-xl transition-all group`}>
-                            <div className={`p-2 bg-blue-500/20 rounded-lg text-blue-400 group-hover:text-emerald-400 group-hover:bg-emerald-500/20 transition-colors`}> <Map className={`w-4 h-4`} /> </div>
-                            <div className={`text-left`}>
-                                <div className={`text-sm font-bold text-gray-200`}>Current View</div>
-                                <div className={`text-[10px] text-gray-500`}>Walkthrough</div>
-                            </div>
-                        </button>
-                        <button onClick={playChallengeScript} className={`flex items-center gap-2 p-3 bg-gray-800/50 hover:bg-emerald-900/30 border border-gray-700 hover:border-emerald-500/50 rounded-xl transition-all group`}>
-                            <div className={`p-2 bg-purple-500/20 rounded-lg text-purple-400 group-hover:text-emerald-400 group-hover:bg-emerald-500/20 transition-colors`}> <Trophy className={`w-4 h-4`} /> </div>
-                            <div className={`text-left`}>
-                                <div className={`text-sm font-bold text-gray-200`}>New Bounty</div>
-                                <div className={`text-[10px] text-gray-500`}>Get Challenge</div>
-                            </div>
-                        </button>
-                         <button onClick={playStatusScript} className={`flex items-center gap-2 p-3 bg-gray-800/50 hover:bg-emerald-900/30 border border-gray-700 hover:border-emerald-500/50 rounded-xl transition-all group`}>
-                            <div className={`p-2 bg-yellow-500/20 rounded-lg text-yellow-400 group-hover:text-emerald-400 group-hover:bg-emerald-500/20 transition-colors`}> <Sparkles className={`w-4 h-4`} />
-                            </div>
-                            <div className={`text-left`}>
-                                <div className={`text-sm font-bold text-gray-200`}>Check Status</div>
-                                <div className={`text-[10px] text-gray-500`}>My Progress</div>
-                            </div>
-                        </button>
-                        <button onClick={handleClose} className={`flex items-center gap-2 p-3 bg-gray-800/50 hover:bg-red-900/30 border border-gray-700 hover:border-red-500/50 rounded-xl transition-all group`}>
-                             <div className={`p-2 bg-red-500/20 rounded-lg text-red-400 group-hover:text-red-300 group-hover:bg-red-500/20 transition-colors`}>
-                                <X className={`w-4 h-4`} />
-                            </div>
-                            <div className={`text-left`}>
-                                <div className={`text-sm font-bold text-gray-200`}>Dismiss</div>
-                                <div className={`text-[10px] text-gray-500`}>Close Overlay</div>
-                            </div>
-                        </button>
-                    </div>
-                )}
-                 {activeMode === 'CHALLENGE' && interactionState === 'SCRIPT' && !isThinking && (
-                    <div className={`mt-4 animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-                        <button onClick={handleCompleteChallenge} className={`w-full py-3 bg-indigo-600 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/25 hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2`}>
-                            <Trophy className={`w-5 h-5`} /> Mark Challenge Complete!
-                        </button>
-                        <p className={`text-xs text-gray-500 text-center mt-2`}>
-                          (For demo purposes. In game, this triggers when you find the rock.)
-                        </p>
-                    </div>
-                )}
             </div>
         </div>
     </div>
   );
+};
+
+// -- MICRO COMPONENT --
+const MenuButton: React.FC<{ icon: any, label: string, sub: string, onClick: () => void, color: string }> = ({ icon, label, sub, onClick, color }) => {
+    const colorClasses: any = {
+        cyan: 'hover:border-cyan-500/50 hover:bg-cyan-900/20 text-cyan-400',
+        purple: 'hover:border-purple-500/50 hover:bg-purple-900/20 text-purple-400',
+        emerald: 'hover:border-emerald-500/50 hover:bg-emerald-900/20 text-emerald-400',
+        red: 'hover:border-red-500/50 hover:bg-red-900/20 text-red-400'
+    };
+
+    return (
+        <button onClick={onClick} className={`flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-lg text-left transition-all group ${colorClasses[color]}`}>
+            <div className={`p-2 rounded bg-black/40 border border-white/5 group-hover:scale-110 transition-transform`}>{icon}</div>
+            <div>
+                <div className="text-[10px] font-bold tracking-widest text-gray-300 group-hover:text-white transition-colors">{label}</div>
+                <div className="text-[9px] text-gray-500 font-mono">{sub}</div>
+            </div>
+        </button>
+    );
 };

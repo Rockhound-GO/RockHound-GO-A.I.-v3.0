@@ -1,46 +1,54 @@
-
-
 /**
- * RockHound GO - Backend Server
- * 
- * To run this server:
- * 1. Install dependencies: npm install express mongoose cors jsonwebtoken bcryptjs dotenv
- * 2. Set environment variables in .env: PORT, MONGODB_URI, JWT_SECRET
- * 3. Run: node server/index.js
+ * RockHound GO // NEURAL NET CORE
+ * Version: 4.5.0-STABLE
+ * Status: ONLINE
  */
 
+require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { User, Rock } = require('./db');
+const compression = require('compression');
+const NodeCache = require('node-cache');
+const { User, Rock, SystemLog } = require('./db');
 
 const app = express();
+const cache = new NodeCache({ stdTTL: 60 }); // 60s cache for stats
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this-in-prod';
+const JWT_SECRET = process.env.JWT_SECRET || 'rockhound-neural-key-v4';
 
-// Middleware
+// --- MIDDLEWARE STACK ---
+app.use(compression()); // Optimize bandwidth
 app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Increased limit for image uploads
+app.use(express.json({ limit: '50mb' })); 
 
-// Database Connection
+// --- RATE LIMITING (Security) ---
+const rateLimit = require('express-rate-limit');
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: { error: "UPLINK SATURATION DETECTED. COOLDOWN ACTIVE." }
+});
+app.use('/api/', apiLimiter);
+
+// --- DB CONNECTION ---
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/rockhound', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('Connected to MongoDB'))
-.catch(err => console.error('MongoDB connection error:', err));
+.then(() => console.log('✅ NEURAL DATABASE LINKED'))
+.catch(err => console.error('❌ DB CONNECTION FAILURE:', err));
 
-// --- Middleware: Verify Token ---
+// --- AUTH MIDDLEWARE ---
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) return res.sendStatus(401);
+  if (!token) return res.status(401).json({ message: "SIGNAL LOST: AUTH REQUIRED" });
 
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
+    if (err) return res.status(403).json({ message: "ACCESS DENIED: INVALID TOKEN" });
     req.user = user;
     next();
   });
@@ -50,238 +58,252 @@ const verifyAdmin = async (req, res, next) => {
     try {
         const user = await User.findById(req.user.id);
         if (!user || !user.isAdmin) {
-            return res.status(403).json({ message: "Admin access required" });
+            return res.status(403).json({ message: "CLEARANCE LEVEL INSUFFICIENT" });
         }
         next();
     } catch (e) {
-        res.status(500).json({ message: "Error verifying admin status" });
+        res.status(500).json({ message: "ADMIN VERIFICATION FAILED" });
     }
 };
 
-// --- Routes: Authentication ---
+// --- REAL-TIME EVENT STREAM (SSE) ---
+// Simulates live terminal feeds for the Admin Dashboard
+app.get('/api/stream', authenticateToken, verifyAdmin, (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
 
-// Register
+    const sendEvent = (data) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Send initial heartbeat
+    sendEvent({ type: 'HEARTBEAT', status: 'ONLINE', timestamp: Date.now() });
+
+    // Simulate random system events
+    const interval = setInterval(() => {
+        const events = [
+            { type: 'LOGIN', user: `Agent_${Math.floor(Math.random()*999)}`, region: 'NA_EAST' },
+            { type: 'SCAN', result: 'IGNEOUS', confidence: 0.98 },
+            { type: 'SYNC', status: 'COMPLETE', bytes: 4096 },
+            { type: 'SECURITY', status: 'OK', load: Math.floor(Math.random()*100) }
+        ];
+        sendEvent(events[Math.floor(Math.random() * events.length)]);
+    }, 3000);
+
+    req.on('close', () => clearInterval(interval));
+});
+
+// --- AUTH ROUTES ---
+
 app.post('/auth/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
     
-    // Check if user exists
-    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
-    if (existingUser) {
-      return res.status(400).json({ message: 'Username or email already exists' });
+    if (await User.findOne({ $or: [{ email }, { username }] })) {
+      return res.status(400).json({ message: 'IDENTITY ALREADY REGISTERED' });
     }
 
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Create user
     const user = new User({
       username,
       email,
       password: hashedPassword,
-      xp: 0,
-      level: 1,
-      // For demo purposes, the first user is admin
-      isAdmin: (await User.countDocuments()) === 0
+      isAdmin: (await User.countDocuments()) === 0, // First user is Admin
+      settings: { theme: 'cyber_dark' } // Default config
     });
 
     await user.save();
+    
+    // Log creation
+    await new SystemLog({ action: 'USER_REGISTER', userId: user._id, details: { email } }).save();
 
-    // Generate Token
     const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.status(201).json({ token, user: { id: user._id, username: user.username, email: user.email, xp: user.xp, level: user.level, avatarUrl: user.avatarUrl, createdAt: user.createdAt, isAdmin: user.isAdmin } });
+    res.status(201).json({ token, user: sanitizeUser(user) });
   } catch (error) {
-    res.status(500).json({ message: 'Server error during registration', error: error.message });
+    res.status(500).json({ message: 'REGISTRATION PROTOCOL FAILED', error: error.message });
   }
 });
 
-// Login
 app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    // Find user
     const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
+    
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(400).json({ message: 'INVALID CREDENTIALS' });
     }
 
-    // Check password
-    const validPassword = await bcrypt.compare(password, user.password);
-    if (!validPassword) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-
-    // Update last login
     user.lastLogin = Date.now();
     await user.save();
+    
+    await new SystemLog({ action: 'USER_LOGIN', userId: user._id, ip: req.ip }).save();
 
-    // Generate Token
     const token = jwt.sign({ id: user._id, username: user.username }, JWT_SECRET, { expiresIn: '7d' });
-
-    res.json({ token, user: { id: user._id, username: user.username, email: user.email, xp: user.xp || 0, level: user.level || 1, avatarUrl: user.avatarUrl, createdAt: user.createdAt, isAdmin: user.isAdmin } });
+    res.json({ token, user: sanitizeUser(user) });
   } catch (error) {
-    res.status(500).json({ message: 'Server error during login', error: error.message });
+    res.status(500).json({ message: 'LOGIN SEQUENCE ABORTED', error: error.message });
   }
 });
 
-// Update Profile
 app.put('/api/user/profile', authenticateToken, async (req, res) => {
   try {
     const { username, email, avatarUrl } = req.body;
     const userId = req.user.id;
 
-    // Check uniqueness if changing
+    // Check conflicts
     if (username || email) {
       const existing = await User.findOne({
-        $and: [
-          { _id: { $ne: userId } },
-          { $or: [{ username }, { email }] }
-        ]
+        $and: [{ _id: { $ne: userId } }, { $or: [{ username }, { email }] }]
       });
-      if (existing) {
-        return res.status(400).json({ message: 'Username or email already taken' });
-      }
+      if (existing) return res.status(400).json({ message: 'IDENTITY CONFLICT DETECTED' });
     }
 
-    const updates = {};
-    if (username) updates.username = username;
-    if (email) updates.email = email;
-    if (avatarUrl !== undefined) updates.avatarUrl = avatarUrl;
-
-    const updatedUser = await User.findByIdAndUpdate(userId, updates, { new: true });
+    const updatedUser = await User.findByIdAndUpdate(userId, { 
+        username, email, avatarUrl 
+    }, { new: true });
     
-    // Return sanitized user
-    res.json({ 
-      id: updatedUser._id, 
-      username: updatedUser.username, 
-      email: updatedUser.email, 
-      xp: updatedUser.xp, 
-      level: updatedUser.level,
-      avatarUrl: updatedUser.avatarUrl,
-      createdAt: updatedUser.createdAt,
-      isAdmin: updatedUser.isAdmin
-    });
-
+    res.json(sanitizeUser(updatedUser));
   } catch (error) {
-    res.status(500).json({ message: 'Error updating profile', error: error.message });
+    res.status(500).json({ message: 'PROFILE UPDATE HALTED', error: error.message });
   }
 });
 
-// --- Routes: Admin Dashboard ---
+// --- ADMIN ROUTES ---
 
 app.get('/api/admin/stats', authenticateToken, verifyAdmin, async (req, res) => {
     try {
-        const totalUsers = await User.countDocuments();
-        
-        // Active in last 24h
-        const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-        const activeUsers = await User.countDocuments({ lastLogin: { $gte: oneDayAgo } });
+        // Check Cache first
+        const cachedStats = cache.get("admin_stats");
+        if (cachedStats) return res.json(cachedStats);
 
-        const totalRocks = await Rock.countDocuments();
+        const [totalUsers, activeUsers, totalRocks] = await Promise.all([
+            User.countDocuments(),
+            User.countDocuments({ lastLogin: { $gte: new Date(Date.now() - 86400000) } }),
+            Rock.countDocuments()
+        ]);
 
-        // Get activity graph data (Last 7 days)
-        const sevenDaysAgo = new Date(Date.now() - 7 * 60 * 60 * 1000 * 24);
+        const sevenDaysAgo = new Date(Date.now() - 7 * 86400000);
         const activityData = await Rock.aggregate([
             { $match: { dateFound: { $gte: sevenDaysAgo.getTime() } } },
-            {
-                $group: {
-                    _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$dateFound" } } },
-                    count: { $sum: 1 }
-                }
-            },
+            { $group: { _id: { $dateToString: { format: "%Y-%m-%d", date: { $toDate: "$dateFound" } } }, count: { $sum: 1 } } },
             { $sort: { _id: 1 } }
         ]);
 
-        // Get location data for heatmap (limit to 1000 recent points for performance)
         const locations = await Rock.find(
-            { 'location.lat': { $exists: true } }, 
-            { 'location.lat': 1, 'location.lng': 1 }
-        ).sort({ dateFound: -1 }).limit(1000);
+            { 'location.type': 'Point' }, 
+            { 'location': 1 }
+        ).sort({ dateFound: -1 }).limit(500)
+         .then(docs => docs.map(d => ({ lat: d.location.coordinates[1], lng: d.location.coordinates[0] })));
 
-        res.json({
-            totalUsers,
-            activeUsers,
-            totalRocks,
-            activityData,
-            locations: locations.map(l => ({ lat: l.location.lat, lng: l.location.lng }))
-        });
-
+        const stats = { totalUsers, activeUsers, totalRocks, activityData, locations };
+        
+        // Save to cache
+        cache.set("admin_stats", stats);
+        
+        res.json(stats);
     } catch (error) {
-        res.status(500).json({ message: 'Error fetching admin stats', error: error.message });
+        res.status(500).json({ message: 'STATS AGGREGATION FAILED', error: error.message });
     }
 });
 
+// --- ROCK DATA ROUTES ---
 
-// --- Routes: Rock Collection ---
-
-// Get User's Collection
 app.get('/api/rocks', authenticateToken, async (req, res) => {
   try {
     const rocks = await Rock.find({ userId: req.user.id }).sort({ dateFound: -1 });
-    res.json(rocks);
+    
+    // Transform GeoJSON back to simple lat/lng for frontend compatibility if needed
+    // or frontend adapts to GeoJSON. Keeping simple for compatibility:
+    const formattedRocks = rocks.map(r => ({
+        ...r.toObject(),
+        location: r.location ? { lat: r.location.coordinates[1], lng: r.location.coordinates[0] } : null
+    }));
+
+    res.json(formattedRocks);
   } catch (error) {
-    res.status(500).json({ message: 'Error fetching collection' });
+    res.status(500).json({ message: 'VAULT ACCESS DENIED' });
   }
 });
 
-// Add Rock to Collection
 app.post('/api/rocks', authenticateToken, async (req, res) => {
   try {
     const rockData = req.body;
     
-    // 1. Save the Rock
+    // Convert to GeoJSON
+    let location = undefined;
+    if (rockData.location) {
+        location = {
+            type: 'Point',
+            coordinates: [rockData.location.lng, rockData.location.lat]
+        };
+    }
+
     const newRock = new Rock({
       ...rockData,
       userId: req.user.id,
+      location,
       dateFound: rockData.dateFound || Date.now()
     });
-    await newRock.save();
-
-    // 2. Calculate XP & Level
-    // Base XP = 50. Bonus = Rarity Score (0-100).
-    const xpGained = 50 + (rockData.rarityScore || 0);
     
+    await newRock.save();
+    
+    // Gamification Logic
+    const xpGained = 50 + (rockData.rarityScore || 0);
     const user = await User.findById(req.user.id);
+    let userStats = null;
+
     if (user) {
-      user.xp = (user.xp || 0) + xpGained;
-      // Simple Level Formula: Level = Floor(XP / 1000) + 1
-      const oldLevel = user.level || 1;
-      const newLevel = Math.floor(user.xp / 1000) + 1;
-      user.level = newLevel;
+      user.xp += xpGained;
+      const oldLevel = user.level;
+      user.level = Math.floor(user.xp / 1000) + 1;
+      
+      // Update stats
+      if (!user.operatorStats) user.operatorStats = {};
+      user.operatorStats.totalScans = (user.operatorStats.totalScans || 0) + 1;
+      if (rockData.rarityScore > 90) user.operatorStats.legendaryFinds = (user.operatorStats.legendaryFinds || 0) + 1;
+
       await user.save();
 
-      // Return rock AND updated stats
-      res.status(201).json({ 
-        rock: newRock, 
-        userStats: { 
+      userStats = { 
           xp: user.xp, 
           level: user.level, 
           xpGained, 
-          leveledUp: newLevel > oldLevel 
-        } 
-      });
-    } else {
-       res.status(201).json({ rock: newRock, userStats: null });
+          leveledUp: user.level > oldLevel 
+      };
     }
 
+    // Invalidate admin cache so global map updates
+    cache.del("admin_stats");
+
+    res.status(201).json({ rock: newRock, userStats });
   } catch (error) {
-    res.status(500).json({ message: 'Error saving rock', error: error.message });
+    res.status(500).json({ message: 'DATA UPLOAD FAILED', error: error.message });
   }
 });
 
-// Delete Rock
 app.delete('/api/rocks/:id', authenticateToken, async (req, res) => {
   try {
     const result = await Rock.findOneAndDelete({ id: req.params.id, userId: req.user.id });
-    if (!result) return res.status(404).json({ message: 'Rock not found' });
-    res.json({ message: 'Rock deleted successfully' });
+    if (!result) return res.status(404).json({ message: 'ASSET NOT FOUND' });
+    
+    // Invalidate cache
+    cache.del("admin_stats");
+    
+    res.json({ message: 'ASSET PURGED' });
   } catch (error) {
-    res.status(500).json({ message: 'Error deleting rock' });
+    res.status(500).json({ message: 'PURGE PROTOCOL FAILED' });
   }
 });
 
+// Helper
+const sanitizeUser = (user) => {
+    const u = user.toObject();
+    delete u.password;
+    return u;
+};
+
+// --- BOOT SERVER ---
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 SYSTEM ONLINE :: PORT ${PORT} :: SECURE`);
 });

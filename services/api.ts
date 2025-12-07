@@ -1,12 +1,23 @@
 import { Rock } from '../types';
 
-// --- CONFIGURATION ---
-// Set this to FALSE when you deploy the server/index.js code to a real server.
-// Set this to TRUE to test the UI in the browser preview.
+// --- NEURAL NETWORK CONFIGURATION ---
+// Set FALSE for production deployment to real server
 const USE_MOCK_SERVER = true; 
-const API_URL = 'http://localhost:3000'; // Replace with your deployed server URL
+const API_URL = 'http://localhost:3000'; 
 
 // --- TYPES ---
+export interface OperatorStats {
+  totalScans: number;
+  distanceTraveled: number;
+  uniqueSpeciesFound: number;
+  legendaryFinds: number;
+}
+
+export interface Badge {
+  id: string;
+  dateUnlocked: string;
+}
+
 export interface User {
   id: string;
   username: string;
@@ -14,9 +25,12 @@ export interface User {
   token?: string;
   xp: number;
   level: number;
+  rankTitle?: string;
   avatarUrl?: string;
   createdAt?: string;
   isAdmin?: boolean;
+  operatorStats?: OperatorStats;
+  badges?: Badge[];
 }
 
 export interface AddRockResponse {
@@ -37,7 +51,7 @@ export interface AdminStats {
   locations: { lat: number; lng: number }[];
 }
 
-// --- API CLIENT ---
+// --- API CLIENT (NEURAL LINK) ---
 export const api = {
   onSyncStatusChange: ((isSyncing: boolean) => {}) as (isSyncing: boolean) => void,
 
@@ -46,41 +60,44 @@ export const api = {
     try {
       return await promise;
     } finally {
-      this.onSyncStatusChange(false);
+      // Add slight decay for visual effect
+      setTimeout(() => this.onSyncStatusChange(false), 300);
     }
   },
 
-  // --- AUTHENTICATION ---
+  // --- AUTHENTICATION PROTOCOLS ---
   
   register(username: string, email: string, password: string): Promise<User> {
     return this._withSyncStatus(this._register(username, email, password));
   },
   async _register(username: string, email: string, password: string): Promise<User> {
     if (USE_MOCK_SERVER) {
-      await simulateDelay(800);
+      await simulateSignalLatency();
       const users = JSON.parse(localStorage.getItem('mock_users') || '[]');
-      if (users.find((u: any) => u.email === email)) throw new Error('Email already exists');
-      if (users.find((u: any) => u.username === username)) throw new Error('Username already exists');
+      if (users.find((u: any) => u.email === email)) throw new Error('IDENTITY ALREADY REGISTERED');
+      if (users.find((u: any) => u.username === username)) throw new Error('CODENAME TAKEN');
       
-      const newUser = { 
+      const newUser: User = { 
         id: crypto.randomUUID(), 
         username, 
         email, 
-        password, 
         xp: 0, 
         level: 1,
-        // Make first user admin for demo
+        rankTitle: 'Novice Scout',
         isAdmin: users.length === 0,
-        createdAt: new Date().toISOString() 
+        createdAt: new Date().toISOString(),
+        operatorStats: { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0 },
+        badges: []
       }; 
-      users.push(newUser);
+      
+      // Store password separately in a real app, but here we just mock it
+      const storageUser = { ...newUser, password }; 
+      users.push(storageUser);
       localStorage.setItem('mock_users', JSON.stringify(users));
       
-      const user = { ...newUser, token: 'mock-jwt-token' };
-      delete (user as any).password;
-      
-      localStorage.setItem('current_user', JSON.stringify(user));
-      return user;
+      const sessionUser = { ...newUser, token: 'mock-neural-token-' + Date.now() };
+      localStorage.setItem('current_user', JSON.stringify(sessionUser));
+      return sessionUser;
     } else {
       const res = await fetch(`${API_URL}/auth/register`, {
         method: 'POST',
@@ -99,33 +116,34 @@ export const api = {
   },
   async _login(email: string, password: string): Promise<User> {
     if (USE_MOCK_SERVER) {
-      await simulateDelay(600);
+      await simulateSignalLatency();
       let users = JSON.parse(localStorage.getItem('mock_users') || '[]');
 
-      // --- AUTO-SEED ADMIN FIX ---
+      // --- AUTO-SEED ADMIN PROTOCOL ---
       if (!users.find((u: any) => u.email === 'admin@rockhound.com')) {
           const adminUser = {
-              id: 'admin-user-id',
-              username: 'Admin',
+              id: 'admin-prime',
+              username: 'System_Admin',
               email: 'admin@rockhound.com',
               password: 'admin',
-              xp: 5000,
-              level: 5,
+              xp: 99999,
+              level: 99,
+              rankTitle: 'System Architect',
               isAdmin: true,
               avatarUrl: null,
-              createdAt: new Date().toISOString()
+              createdAt: new Date().toISOString(),
+              operatorStats: { totalScans: 9000, distanceTraveled: 40000, uniqueSpeciesFound: 500, legendaryFinds: 100 }
           };
           users.push(adminUser);
           localStorage.setItem('mock_users', JSON.stringify(users));
       }
-      // ---------------------------
 
       const user = users.find((u: any) => u.email === email && u.password === password);
       
-      if (!user) throw new Error('Invalid credentials');
+      if (!user) throw new Error('ACCESS DENIED: INVALID CREDENTIALS');
       
-      const userObj = { ...user, token: 'mock-jwt-token' };
-      delete userObj.password;
+      const userObj = { ...user, token: 'mock-neural-token-' + Date.now() };
+      delete (userObj as any).password;
       
       localStorage.setItem('current_user', JSON.stringify(userObj));
       return userObj;
@@ -147,28 +165,28 @@ export const api = {
   },
   async _updateProfile(userData: Partial<User>): Promise<User> {
     if (USE_MOCK_SERVER) {
-      await simulateDelay(600);
+      await simulateSignalLatency();
       const currentUser = this.getCurrentUser();
-      if (!currentUser) throw new Error("Not logged in");
+      if (!currentUser) throw new Error("SIGNAL LOST: AUTH REQUIRED");
 
       const users = JSON.parse(localStorage.getItem('mock_users') || '[]');
       const userIndex = users.findIndex((u: any) => u.id === currentUser.id);
       
-      if (userIndex === -1) throw new Error("User not found");
+      if (userIndex === -1) throw new Error("USER RECORD NOT FOUND");
 
       if (userData.username || userData.email) {
         const existing = users.find((u: any) => 
           u.id !== currentUser.id && 
           ((userData.username && u.username === userData.username) || (userData.email && u.email === userData.email))
         );
-        if (existing) throw new Error("Username or Email already taken");
+        if (existing) throw new Error("IDENTITY CONFLICT DETECTED");
       }
 
       const updatedUser = { ...users[userIndex], ...userData };
       users[userIndex] = updatedUser;
       localStorage.setItem('mock_users', JSON.stringify(users));
       
-      const safeUser = { ...updatedUser, token: 'mock-jwt-token' };
+      const safeUser = { ...updatedUser, token: currentUser.token };
       delete (safeUser as any).password;
       localStorage.setItem('current_user', JSON.stringify(safeUser));
       
@@ -206,28 +224,42 @@ export const api = {
     }
   },
 
+  // --- COMMAND CENTER TELEMETRY ---
+
   getAdminStats(): Promise<AdminStats> {
     return this._withSyncStatus(this._getAdminStats());
   },
   async _getAdminStats(): Promise<AdminStats> {
       if (USE_MOCK_SERVER) {
-          await simulateDelay(800);
+          await simulateSignalLatency();
           const currentUser = this.getCurrentUser();
-          if (!currentUser?.isAdmin) throw new Error("Unauthorized");
+          if (!currentUser?.isAdmin) throw new Error("SECURITY CLEARANCE INSUFFICIENT");
 
+          // Generate realistic sine-wave traffic pattern
           const activityData = Array.from({ length: 7 }, (_, i) => {
               const d = new Date();
               d.setDate(d.getDate() - (6 - i));
+              // Sine wave peak at day 4
+              const baseLoad = 300;
+              const wave = Math.sin(i * 0.8) * 150;
+              const noise = Math.random() * 50;
+              
               return {
                   _id: d.toISOString().split('T')[0],
-                  count: Math.floor(Math.random() * 500) + 100
+                  count: Math.floor(baseLoad + wave + noise)
               };
           });
 
-          const locations = Array.from({ length: 50 }, () => ({
-              lat: (Math.random() * 110) - 40, 
-              lng: (Math.random() * 360) - 180
-          }));
+          // Generate clustered geolocation data
+          const locations = Array.from({ length: 150 }, () => {
+              // Cluster around a few "hubs"
+              const hubs = [{lat: 40.7, lng: -74.0}, {lat: 51.5, lng: -0.1}, {lat: 35.6, lng: 139.7}];
+              const hub = hubs[Math.floor(Math.random() * hubs.length)];
+              return {
+                  lat: hub.lat + (Math.random() - 0.5) * 10, 
+                  lng: hub.lng + (Math.random() - 0.5) * 10
+              };
+          });
 
           return {
               totalUsers: 14502,
@@ -241,19 +273,19 @@ export const api = {
           const res = await fetch(`${API_URL}/api/admin/stats`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
-          if (!res.ok) throw new Error('Failed to fetch admin stats');
+          if (!res.ok) throw new Error('UPLINK FAILURE');
           return res.json();
       }
   },
 
-  // --- DATA ---
+  // --- ARCHIVE DATA OPERATIONS ---
 
   getRocks(): Promise<Rock[]> {
     return this._withSyncStatus(this._getRocks());
   },
   async _getRocks(): Promise<Rock[]> {
     if (USE_MOCK_SERVER) {
-      await simulateDelay(400);
+      await simulateSignalLatency();
       const user = this.getCurrentUser();
       if (!user) return [];
       const allRocks = JSON.parse(localStorage.getItem('mock_rocks') || '[]');
@@ -263,7 +295,7 @@ export const api = {
       const res = await fetch(`${API_URL}/api/rocks`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error('Failed to fetch collection');
+      if (!res.ok) throw new Error('ARCHIVE RETRIEVAL FAILED');
       return res.json();
     }
   },
@@ -273,15 +305,16 @@ export const api = {
   },
   async _addRock(rock: Rock): Promise<AddRockResponse> {
     if (USE_MOCK_SERVER) {
-      await simulateDelay(500);
+      await simulateSignalLatency();
       const user = this.getCurrentUser();
-      if (!user) throw new Error('Not authenticated');
+      if (!user) throw new Error('UPLINK DISCONNECTED');
       
       const allRocks = JSON.parse(localStorage.getItem('mock_rocks') || '[]');
       const newRock = { ...rock, userId: user.id };
       allRocks.unshift(newRock);
       localStorage.setItem('mock_rocks', JSON.stringify(allRocks));
 
+      // Gamification Logic
       const xpGained = 50 + (rock.rarityScore || 0);
       const users = JSON.parse(localStorage.getItem('mock_users') || '[]');
       const userIndex = users.findIndex((u: any) => u.id === user.id);
@@ -291,13 +324,21 @@ export const api = {
       let leveledUp = newLevel > (user.level || 1);
 
       if (userIndex !== -1) {
-        users[userIndex].xp = newXp;
-        users[userIndex].level = newLevel;
+        const u = users[userIndex];
+        u.xp = newXp;
+        u.level = newLevel;
+        
+        // Update Operator Stats
+        if (!u.operatorStats) u.operatorStats = { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0 };
+        u.operatorStats.totalScans += 1;
+        if (rock.rarityScore > 90) u.operatorStats.legendaryFinds += 1;
+        
         localStorage.setItem('mock_users', JSON.stringify(users));
+        
+        // Update session
+        const updatedUser = { ...user, xp: newXp, level: newLevel, operatorStats: u.operatorStats };
+        localStorage.setItem('current_user', JSON.stringify(updatedUser));
       }
-      
-      const updatedUser = { ...user, xp: newXp, level: newLevel };
-      localStorage.setItem('current_user', JSON.stringify(updatedUser));
 
       return {
         rock: newRock,
@@ -318,7 +359,7 @@ export const api = {
         },
         body: JSON.stringify(rock)
       });
-      if (!res.ok) throw new Error('Failed to save rock');
+      if (!res.ok) throw new Error('UPLOAD FAILED');
       return res.json();
     }
   },
@@ -328,9 +369,9 @@ export const api = {
   },
   async _deleteRock(rockId: string): Promise<void> {
     if (USE_MOCK_SERVER) {
-      await simulateDelay(300);
+      await simulateSignalLatency();
       const user = this.getCurrentUser();
-      if (!user) throw new Error('Not authenticated');
+      if (!user) throw new Error('UPLINK DISCONNECTED');
 
       let allRocks = JSON.parse(localStorage.getItem('mock_rocks') || '[]');
       allRocks = allRocks.filter((r: any) => !(r.id === rockId && r.userId === user.id));
@@ -341,9 +382,13 @@ export const api = {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error('Failed to delete rock');
+      if (!res.ok) throw new Error('PURGE FAILED');
     }
   }
 };
 
-const simulateDelay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// Simulate variable network latency for realism
+const simulateSignalLatency = () => new Promise(resolve => {
+    const latency = Math.floor(Math.random() * 600) + 200; // 200ms - 800ms
+    setTimeout(resolve, latency);
+});

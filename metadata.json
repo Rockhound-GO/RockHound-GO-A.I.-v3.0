@@ -1,6 +1,6 @@
 {
-  "name": "Copy of RockHound-GO",
-  "description": "The ultimate AI-powered rock identifier and collection game. Snap photos of rocks, identify them instantly with Gemini, and build your geological compendium.",
+  "name": "RockHound GO // NEURAL",
+  "description": "Advanced geological intelligence suite. Utilize computer vision to scan, classify, and archive mineral specimens. Features: Tactical HUD, Neural Cloud Sync, and Real-Time AI Analysis.",
   "requestFramePermissions": [
     "camera",
     "geolocation"

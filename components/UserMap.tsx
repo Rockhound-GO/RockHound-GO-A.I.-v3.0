@@ -1,8 +1,58 @@
-
-
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Rock } from '../types';
-import { Loader2, MapPin } from 'lucide-react';
+import { Loader2, MapPin, Crosshair, Navigation, LocateFixed } from 'lucide-react';
+
+// -- AUDIO ENGINE (Local) --
+const useMapSound = () => {
+  const audioCtx = useRef<AudioContext | null>(null);
+
+  const playSound = useCallback((type: 'ping' | 'lock' | 'scan') => {
+    if (!audioCtx.current) {
+      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const ctx = audioCtx.current;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    if (type === 'ping') { // Radar blip
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, now);
+        osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+        osc.start(now);
+        osc.stop(now + 0.1);
+    } else if (type === 'lock') { // Target acquisition
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(400, now);
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
+        osc.start(now);
+        osc.stop(now + 0.05);
+        
+        // Double beep
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.type = 'square';
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        osc2.frequency.setValueAtTime(400, now + 0.1);
+        gain2.gain.setValueAtTime(0.05, now + 0.1);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        osc2.start(now + 0.1);
+        osc2.stop(now + 0.15);
+    }
+  }, []);
+
+  return playSound;
+};
 
 interface UserMapProps {
   rocks: Rock[];
@@ -12,77 +62,76 @@ interface UserMapProps {
 export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
-  const rockLayerRef = useRef<any>(null); // Dedicated layer for rocks
-  const userMarkerRef = useRef<any>(null); // Reference to update user position
+  const rockLayerRef = useRef<any>(null);
+  const userMarkerRef = useRef<any>(null);
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number } | null>(null);
+  const playSound = useMapSound();
 
-  // 1. Get user location on mount
+  // 1. Get user location
   useEffect(() => {
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
+      navigator.geolocation.watchPosition(
         (pos) => setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => console.warn('Loc error', err)
+        (err) => console.warn('Loc error', err),
+        { enableHighAccuracy: true }
       );
     }
   }, []);
 
   // 2. Initialize Map
   useEffect(() => {
-    // Only initialize if map doesn't exist and L is available
     if (mapContainerRef.current && !mapInstanceRef.current && (window as any).L) {
       const L = (window as any).L;
 
       const startLat = userLoc?.lat || 37.7749;
       const startLng = userLoc?.lng || -122.4194;
-      const startZoom = userLoc ? 14 : 3; // Zoom in closer if we have user loc
+      const startZoom = userLoc ? 15 : 4;
 
-      // Create Map
-      const map = L.map(mapContainerRef.current).setView([startLat, startLng], startZoom);
+      const map = L.map(mapContainerRef.current, {
+          zoomControl: false,
+          attributionControl: false
+      }).setView([startLat, startLng], startZoom);
+      
       mapInstanceRef.current = map;
 
-      // Add Tile Layer
+      // Dark Matter Map Tiles
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-        attribution: '&copy; OpenStreetMap &copy; CARTO',
-        subdomains: 'abcd',
-        maxZoom: 19,
+        maxZoom: 20,
       }).addTo(map);
 
-      // Create a LayerGroup specifically for rocks and add it to map
       rockLayerRef.current = L.layerGroup().addTo(map);
     }
 
-    // Cleanup function to destroy map on unmount
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
-        rockLayerRef.current = null;
-        userMarkerRef.current = null;
       }
     };
-  }, []); // Run once on mount (dependency array empty intentionally to avoid re-init)
+  }, []);
 
-  // 3. Update User Marker & View
+  // 3. Update User Marker
   useEffect(() => {
     if (mapInstanceRef.current && userLoc && (window as any).L) {
       const L = (window as any).L;
 
-      // If marker exists, move it. If not, create it.
       if (userMarkerRef.current) {
         userMarkerRef.current.setLatLng([userLoc.lat, userLoc.lng]);
       } else {
+        // Pulsing Radar Dot
         const userIcon = L.divIcon({
-          className: 'custom-user-marker',
-          html: `<div style="background-color: #4f46e5; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; box-shadow: 0 0 0 10px rgba(79, 70, 229, 0.2);"></div>`,
-          iconSize: [14, 14],
-          iconAnchor: [7, 7],
+          className: 'user-radar-icon',
+          html: `
+            <div class="relative w-4 h-4">
+                <div class="absolute inset-0 bg-cyan-500 rounded-full animate-ping opacity-75"></div>
+                <div class="relative w-4 h-4 bg-cyan-400 rounded-full border-2 border-white shadow-[0_0_10px_#22d3ee]"></div>
+            </div>
+          `,
+          iconSize: [16, 16],
+          iconAnchor: [8, 8],
         });
-        userMarkerRef.current = L.marker([userLoc.lat, userLoc.lng], { icon: userIcon }).addTo(
-          mapInstanceRef.current
-        );
-        
-        // Fly to user location smoothly
-        mapInstanceRef.current.flyTo([userLoc.lat, userLoc.lng], 14);
+        userMarkerRef.current = L.marker([userLoc.lat, userLoc.lng], { icon: userIcon }).addTo(mapInstanceRef.current);
+        mapInstanceRef.current.flyTo([userLoc.lat, userLoc.lng], 15);
       }
     }
   }, [userLoc]);
@@ -91,104 +140,128 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
   useEffect(() => {
     if (mapInstanceRef.current && rockLayerRef.current && (window as any).L) {
       const L = (window as any).L;
-
-      // Clear ONLY the rock layer, leaving the user marker and tiles alone
       rockLayerRef.current.clearLayers();
 
       rocks.forEach((rock) => {
         if (rock.location) {
-          let color = '#3b82f6'; // blue
-          if (rock.type === 'Igneous') color = '#ef4444';
-          if (rock.type === 'Sedimentary') color = '#eab308';
-          if (rock.type === 'Metamorphic') color = '#a855f7';
+          let colorClass = 'bg-blue-500';
+          if (rock.type === 'Igneous') colorClass = 'bg-red-500';
+          if (rock.type === 'Sedimentary') colorClass = 'bg-yellow-500';
+          if (rock.type === 'Metamorphic') colorClass = 'bg-purple-500';
 
           const iconHtml = `
-            <div style="
-                background-color: ${color}; 
-                width: 24px; height: 24px; 
-                border-radius: 50% 50% 50% 0; 
-                transform: rotate(-45deg);
-                border: 2px solid white; 
-                display: flex; align-items: center; justify-content: center;
-                box-shadow: 0 2px 5px rgba(0,0,0,0.5);
-            ">
-                <div style="width: 6px; height: 6px; background: white; border-radius: 50%; transform: rotate(45deg);"></div>
+            <div class="group relative flex items-center justify-center w-8 h-8 cursor-pointer hover:scale-110 transition-transform">
+                <div class="absolute inset-0 ${colorClass} opacity-20 blur-md rounded-full group-hover:opacity-60 transition-opacity"></div>
+                <div class="w-3 h-3 ${colorClass} rotate-45 border border-white shadow-lg"></div>
+                <div class="absolute -bottom-6 opacity-0 group-hover:opacity-100 transition-opacity bg-black/80 px-2 py-1 rounded text-[8px] text-white font-mono whitespace-nowrap border border-white/10">
+                    ${rock.name}
+                </div>
             </div>
           `;
 
           const icon = L.divIcon({
             className: 'custom-pin',
             html: iconHtml,
-            iconSize: [24, 24],
-            iconAnchor: [12, 24],
-            popupAnchor: [0, -28],
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
           });
 
           const marker = L.marker([rock.location.lat, rock.location.lng], { icon });
-
-          // Create Popup
-          const popupContent = document.createElement('div');
-          popupContent.className = 'text-center min-w-[150px]';
-          popupContent.innerHTML = `
-            <div class="w-full h-24 rounded-lg overflow-hidden mb-2 bg-gray-800">
-                <img src="${rock.imageUrl}" class="w-full h-full object-cover" onerror="this.style.display='none'"/>
-            </div>
-            <h3 class="font-bold text-gray-900 text-sm mb-0">${rock.name}</h3>
-            <p class="text-[10px] text-gray-500 mb-2 capitalize">${rock.type}</p>
-            <button id="btn-${rock.id}" class="bg-indigo-600 text-white text-xs font-medium px-3 py-1.5 rounded hover:bg-indigo-700 w-full transition-colors">
-                View Details
-            </button>
-          `;
-
-          marker.bindPopup(popupContent);
-
-          // Attach click listener for the button inside the popup
-          marker.on('popupopen', () => {
-            const btn = document.getElementById(`btn-${rock.id}`);
-            if (btn) {
-              btn.onclick = (e) => {
-                e.stopPropagation(); // Prevent map click
-                onRockClick(rock);
-              };
-            }
+          
+          marker.on('click', () => {
+              playSound('lock');
+              onRockClick(rock);
           });
 
-          // Add to the specific ROCK LAYER group, not directly to map
           rockLayerRef.current.addLayer(marker);
         }
       });
     }
-  }, [rocks, onRockClick]);
+  }, [rocks, onRockClick, playSound]);
+
+  const handleRecenter = () => {
+      if (userLoc && mapInstanceRef.current) {
+          playSound('scan');
+          mapInstanceRef.current.flyTo([userLoc.lat, userLoc.lng], 16);
+      }
+  };
 
   return (
-    <div className={`absolute inset-0 z-0 bg-gray-900`}>
-      <div ref={mapContainerRef} className={`absolute inset-0 z-0`} />
+    <div className="absolute inset-0 z-0 bg-[#050a10] overflow-hidden">
+      <style>{`
+        .leaflet-container { background: #050a10 !important; }
+        /* Tactical Grid Overlay */
+        .grid-overlay {
+            background-image: 
+                linear-gradient(rgba(6,182,212,0.1) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(6,182,212,0.1) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        @keyframes radar-sweep { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+      `}</style>
 
-      {/* Legend Overlay */}
-      <div className={`absolute top-4 right-4 z-[400] bg-gray-900/90 backdrop-blur border border-gray-700 p-3 rounded-xl shadow-xl max-w-[150px]`}>
-        <h4 className={`text-xs font-bold text-white mb-2 uppercase tracking-wide`}>Map Key</h4>
-        <div className={`space-y-1.5`}>
-          <div className={`flex items-center gap-2 text-[10px] text-gray-300`}>
-            <div className={`w-2 h-2 rounded-full bg-[#ef4444]`} /> Igneous
+      {/* Map Container */}
+      <div ref={mapContainerRef} className="absolute inset-0 z-0 opacity-80" />
+      
+      {/* Tactical Overlays */}
+      <div className="absolute inset-0 pointer-events-none z-10 grid-overlay" />
+      <div className="absolute inset-0 pointer-events-none z-10 bg-gradient-to-b from-black/60 via-transparent to-black/60" />
+
+      {/* Compass HUD */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-4 text-cyan-500/50 font-mono text-[10px] tracking-widest z-20 pointer-events-none">
+          <span>090° N</span>
+          <span>///</span>
+          <span>180° S</span>
+          <span>///</span>
+          <span>270° W</span>
+      </div>
+
+      {/* Radar Sweep Effect (Centered on screen) */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vh] h-[80vh] rounded-full border border-cyan-500/10 pointer-events-none z-0">
+          <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,transparent_270deg,rgba(6,182,212,0.1)_360deg)] animate-[radar-sweep_4s_linear_infinite]" />
+      </div>
+
+      {/* Controls */}
+      <div className="absolute bottom-32 right-4 z-20 flex flex-col gap-2">
+          <button 
+            onClick={handleRecenter}
+            className="p-3 bg-black/60 backdrop-blur border border-cyan-500/30 text-cyan-400 rounded-full shadow-lg hover:bg-cyan-900/30 transition-all active:scale-95"
+          >
+              <LocateFixed className="w-5 h-5" />
+          </button>
+      </div>
+
+      {/* Legend */}
+      <div className="absolute top-4 right-4 z-20 bg-black/60 backdrop-blur border border-white/10 p-3 rounded-xl shadow-xl max-w-[120px]">
+        <h4 className="text-[9px] font-bold text-gray-400 mb-2 uppercase tracking-widest flex items-center gap-2">
+            <Crosshair className="w-3 h-3 text-cyan-500" /> Targets
+        </h4>
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2 text-[9px] text-gray-300 font-mono">
+            <div className="w-1.5 h-1.5 rotate-45 bg-[#ef4444] border border-white/50" /> IGNEOUS
           </div>
-          <div className={`flex items-center gap-2 text-[10px] text-gray-300`}>
-            <div className={`w-2 h-2 rounded-full bg-[#eab308]`} /> Sedimentary
+          <div className="flex items-center gap-2 text-[9px] text-gray-300 font-mono">
+            <div className="w-1.5 h-1.5 rotate-45 bg-[#eab308] border border-white/50" /> SEDIMENTARY
           </div>
-          <div className={`flex items-center gap-2 text-[10px] text-gray-300`}>
-            <div className={`w-2 h-2 rounded-full bg-[#a855f7]`} /> Metamorphic
+          <div className="flex items-center gap-2 text-[9px] text-gray-300 font-mono">
+            <div className="w-1.5 h-1.5 rotate-45 bg-[#a855f7] border border-white/50" /> METAMORPHIC
           </div>
-          <div className={`flex items-center gap-2 text-[10px] text-gray-300`}>
-            <div className={`w-2 h-2 rounded-full bg-[#3b82f6]`} /> Mineral/Other
+          <div className="flex items-center gap-2 text-[9px] text-gray-300 font-mono">
+            <div className="w-1.5 h-1.5 rotate-45 bg-[#3b82f6] border border-white/50" /> MINERAL
           </div>
         </div>
       </div>
 
+      {/* Loading State */}
       {!rocks.length && (
-        <div className={`absolute bottom-8 left-4 right-4 z-[400] pointer-events-none flex justify-center`}>
-             <div className={`bg-gray-800/90 backdrop-blur px-4 py-2 rounded-full border border-gray-700 shadow-lg`}>
-                <p className={`text-xs text-gray-300 flex items-center gap-2`}>
-                    <Loader2 className={`w-3 h-3 animate-spin`} />
-                    Scanning for local rocks...
+        <div className="absolute bottom-8 left-0 right-0 z-20 pointer-events-none flex justify-center">
+             <div className="bg-black/60 backdrop-blur px-6 py-2 rounded-full border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.2)]">
+                <p className="text-[10px] text-cyan-400 font-mono uppercase tracking-widest flex items-center gap-3">
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                    Scanning Sector...
                 </p>
              </div>
         </div>

@@ -1,9 +1,71 @@
-
-
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Rock, RockType } from '../types';
-import { Search, Filter, ArrowUpDown, Loader2, Sparkles, Box, Star, Heart } from 'lucide-react'; // Added Star, Heart
+import { Search, ArrowUpDown, Loader2, Sparkles, Box, Star, Heart, Filter, Database, ScanLine, Grid3X3, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+// -- AUDIO ENGINE (Local) --
+const useCollectionSound = () => {
+  const audioCtx = useRef<AudioContext | null>(null);
+
+  const playSound = useCallback((type: 'hover' | 'click' | 'filter' | 'success') => {
+    if (!audioCtx.current) {
+      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    const ctx = audioCtx.current;
+    if (ctx.state === 'suspended') ctx.resume();
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+
+    switch (type) {
+        case 'hover':
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(400, now);
+            osc.frequency.linearRampToValueAtTime(500, now + 0.05);
+            gain.gain.setValueAtTime(0.02, now);
+            gain.gain.linearRampToValueAtTime(0, now + 0.05);
+            osc.start(now);
+            osc.stop(now + 0.05);
+            break;
+        case 'click':
+            osc.type = 'square';
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.exponentialRampToValueAtTime(100, now + 0.1);
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+            break;
+        case 'filter':
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(1200, now);
+            osc.frequency.exponentialRampToValueAtTime(600, now + 0.1);
+            gain.gain.setValueAtTime(0.03, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+            osc.start(now);
+            osc.stop(now + 0.1);
+            break;
+        case 'success':
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(600, now);
+            osc.frequency.linearRampToValueAtTime(1200, now + 0.2);
+            gain.gain.setValueAtTime(0.05, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+            osc.start(now);
+            osc.stop(now + 0.3);
+            break;
+    }
+  }, []);
+
+  return playSound;
+};
 
 interface CollectionProps {
   rocks: Rock[];
@@ -16,97 +78,47 @@ type RockStatusFilter = 'all' | 'approved' | 'pending';
 
 export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLoading = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterTypes, setFilterTypes] = useState<Set<RockType>>(new Set()); // Changed to Set for multi-selection
-  const [filterStatus, setFilterStatus] = useState<RockStatusFilter>('all'); // New status filter
-  const [showFavorites, setShowFavorites] = useState(false); // New favorite filter
-  const [favoriteRockIds, setFavoriteRockIds] = useState<Set<string>>(new Set()); // Store favorite IDs
+  const [filterTypes, setFilterTypes] = useState<Set<RockType>>(new Set());
+  const [filterStatus, setFilterStatus] = useState<RockStatusFilter>('all');
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [favoriteRockIds, setFavoriteRockIds] = useState<Set<string>>(new Set());
   const [sortOrder, setSortOrder] = useState<SortOrder>('date_desc');
+  const playSound = useCollectionSound();
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const imageRefs = useRef<Record<string, HTMLImageElement | null>>({});
-
-  // Load favorites from localStorage on mount
+  // Load favorites
   useEffect(() => {
     const storedFavorites = localStorage.getItem('rockhound_favorites');
-    if (storedFavorites) {
-      setFavoriteRockIds(new Set(JSON.parse(storedFavorites)));
-    }
+    if (storedFavorites) setFavoriteRockIds(new Set(JSON.parse(storedFavorites)));
   }, []);
 
-  // Save favorites to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('rockhound_favorites', JSON.stringify(Array.from(favoriteRockIds)));
   }, [favoriteRockIds]);
 
-  // Parallax Effect Logic
-  const handleScroll = useCallback(() => {
-    if (!scrollContainerRef.current) return;
-
-    const scrollY = scrollContainerRef.current.scrollTop;
-    const viewportHeight = scrollContainerRef.current.clientHeight;
-
-    Object.entries(imageRefs.current).forEach(([, img]) => {
-      // Fix: Explicitly check if img is an HTMLImageElement and has a parentElement
-      if (img instanceof HTMLImageElement && img.parentElement) {
-        const cardTop = img.parentElement.offsetTop - scrollY;
-        const cardBottom = cardTop + img.parentElement.clientHeight;
-
-        // Only update if card is somewhat in viewport
-        if (cardBottom > 0 && cardTop < viewportHeight) {
-          const center = cardTop + img.parentElement.clientHeight / 2;
-          const viewportCenter = viewportHeight / 2;
-          const offset = (center - viewportCenter) * 0.05; // Adjust multiplier for intensity
-
-          // Fix: Access style directly after type guard
-          img.style.transform = `translateY(${offset}px)`;
-        }
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      // Initial parallax application
-      handleScroll(); 
-    }
-    return () => {
-      if (container) {
-        container.removeEventListener('scroll', handleScroll);
-      }
-    };
-  }, [rocks, handleScroll]); // Re-run effect if rocks change to ensure all images are tracked
-
   const toggleFavorite = (rockId: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent card click
+    event.stopPropagation();
+    playSound('success');
     setFavoriteRockIds(prev => {
       const newFavorites = new Set(prev);
       if (newFavorites.has(rockId)) {
         newFavorites.delete(rockId);
-        toast('Removed from favorites', { icon: '💔', style: { background: '#ef4444', color: '#fff' } });
+        toast('Archived to standard storage', { icon: '📉', style: { background: '#374151', color: '#fff' } });
       } else {
         newFavorites.add(rockId);
-        toast('Added to favorites!', { icon: '🌟', style: { background: '#eab308', color: '#fff' } });
+        toast('Marked as Priority Asset', { icon: '🌟', style: { background: '#eab308', color: '#fff' } });
       }
       return newFavorites;
     });
   };
 
   const toggleTypeFilter = (type: RockType) => {
+    playSound('filter');
     setFilterTypes(prev => {
       const newFilters = new Set(prev);
-      if (newFilters.has(type)) {
-        newFilters.delete(type);
-      } else {
-        newFilters.add(type);
-      }
+      if (newFilters.has(type)) newFilters.delete(type);
+      else newFilters.add(type);
       return newFilters;
     });
-  };
-
-  const clearTypeFilters = () => {
-    setFilterTypes(new Set());
   };
 
   const sortedAndFilteredRocks = useMemo(() => {
@@ -114,13 +126,9 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
       const lowerSearch = searchTerm.toLowerCase();
       const matchesSearch = (rock.name.toLowerCase().includes(lowerSearch) || 
                              (rock.scientificName && rock.scientificName.toLowerCase().includes(lowerSearch)));
-      
       const matchesType = filterTypes.size === 0 || filterTypes.has(rock.type);
-      
       const matchesStatus = filterStatus === 'all' || rock.status === filterStatus;
-
       const matchesFavorite = !showFavorites || favoriteRockIds.has(rock.id);
-
       return matchesSearch && matchesType && matchesStatus && matchesFavorite;
     });
 
@@ -138,180 +146,247 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
   }, [rocks, searchTerm, filterTypes, filterStatus, showFavorites, favoriteRockIds, sortOrder]);
 
   return (
-    <div className={`h-full flex flex-col px-4 pt-20 pb-24 space-y-6 overflow-hidden`}>
-      <div className={`space-y-4 flex-none z-10`}>
-        <h2 className={`text-2xl font-bold text-white tracking-widest uppercase mb-1`}>Vault</h2>
+    <div className="h-full flex flex-col bg-[#030508] relative overflow-hidden font-sans selection:bg-cyan-500/30">
+      <style>{`
+        .mask-linear-fade { mask-image: linear-gradient(to right, transparent, black 10%, black 90%, transparent); }
+        .specimen-card { transform-style: preserve-3d; transition: transform 0.1s ease-out; }
+        .specimen-content { transform: translateZ(20px); }
+        .holo-grid { background-image: radial-gradient(rgba(0, 255, 255, 0.1) 1px, transparent 1px); background-size: 20px 20px; }
+      `}</style>
+
+      {/* Background Ambience */}
+      <div className="absolute inset-0 holo-grid pointer-events-none opacity-20" />
+      <div className="absolute top-0 right-0 w-96 h-96 bg-indigo-600/10 rounded-full blur-[100px] pointer-events-none" />
+
+      {/* --- CONTROL DECK (Header) --- */}
+      <div className="relative z-20 px-6 pt-20 pb-4 flex-none space-y-6 bg-gradient-to-b from-[#030508] via-[#030508]/90 to-transparent">
+        <div className="flex justify-between items-end">
+            <div>
+                <h2 className="text-3xl font-bold text-white tracking-widest font-mono flex items-center gap-3">
+                    <Database className="w-6 h-6 text-cyan-500 animate-pulse" />
+                    VAULT_DB
+                </h2>
+                <p className="text-[10px] text-cyan-500/60 font-mono tracking-[0.2em] mt-1">
+                    SECURE STORAGE // {rocks.length} SPECIMENS LOGGED
+                </p>
+            </div>
+            <div className="flex gap-2">
+                {/* Visual Style Toggles (Non-functional for demo, just aesthetic) */}
+                <button className="p-2 rounded bg-white/5 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors"><Grid3X3 size={14} /></button>
+                <button className="p-2 rounded bg-transparent text-gray-500 border border-gray-800 hover:text-white transition-colors"><Layers size={14} /></button>
+            </div>
+        </div>
         
-        {/* Search Bar & Sort */}
-        <div className={`relative group`}>
-           <div className={`absolute inset-0 bg-indigo-500/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-           <div className={`relative flex items-center bg-[#0f172a]/60 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-lg`}>
-              <Search className={`w-4 h-4 text-gray-400 mr-3`} />
+        {/* Search Console */}
+        <div className="relative group">
+           <div className="absolute inset-0 bg-indigo-500/10 rounded-xl blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+           <div className="relative flex items-center bg-[#0a0f18] border border-white/10 rounded-xl px-4 py-3 shadow-inner transition-all focus-within:border-cyan-500/50 focus-within:shadow-[0_0_20px_rgba(34,211,238,0.1)]">
+              <Search className="w-4 h-4 text-cyan-500/50 mr-3" />
               <input 
                 type="text" 
-                placeholder="SEARCH DATABASE..." 
+                placeholder="QUERY DATABASE..." 
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className={`bg-transparent border-none outline-none text-white text-xs font-mono flex-1 placeholder-gray-600 tracking-wider`}
+                onChange={(e) => { setSearchTerm(e.target.value); playSound('click'); }}
+                className="bg-transparent border-none outline-none text-white text-xs font-mono flex-1 placeholder-gray-700 tracking-wider uppercase"
               />
-              <div className={`w-px h-4 bg-gray-700 mx-3`} />
-              <div className={`relative group`}>
+              {/* Sort Dial */}
+              <div className="relative flex items-center pl-4 border-l border-white/10">
+                 <span className="text-[9px] text-gray-500 font-bold mr-2">SORT:</span>
                  <select
                   value={sortOrder}
-                  onChange={(e) => setSortOrder(e.target.value as SortOrder)}
-                  className={`bg-transparent text-[10px] font-mono text-gray-400 uppercase outline-none appearance-none pr-6 cursor-pointer hover:text-cyan-400 transition-colors`}
-                  aria-label="Sort Order"
+                  onChange={(e) => { setSortOrder(e.target.value as SortOrder); playSound('filter'); }}
+                  className="bg-transparent text-[10px] font-mono text-cyan-400 uppercase outline-none appearance-none pr-4 cursor-pointer hover:text-white transition-colors"
                 >
-                  <option value="date_desc" className={`bg-gray-900`}>Newest</option>
-                  <option value="date_asc" className={`bg-gray-900`}>Oldest</option>
-                  <option value="name_asc" className={`bg-gray-900`}>Name (A-Z)</option>
-                  <option value="name_desc" className={`bg-gray-900`}>Name (Z-A)</option>
-                  <option value="rarity_desc" className={`bg-gray-900`}>Rarity (High-Low)</option>
-                  <option value="rarity_asc" className={`bg-gray-900`}>Rarity (Low-High)</option>
+                  <option value="date_desc" className="bg-gray-900">Newest</option>
+                  <option value="date_asc" className="bg-gray-900">Oldest</option>
+                  <option value="rarity_desc" className="bg-gray-900">Rarity ▼</option>
+                  <option value="rarity_asc" className="bg-gray-900">Rarity ▲</option>
                 </select>
-                <ArrowUpDown className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500 pointer-events-none group-hover:text-cyan-400 transition-colors`} />
-                <span className={`absolute hidden group-hover:block -top-8 left-1/2 -translate-x-1/2 bg-gray-800/90 text-white text-[9px] px-2 py-1 rounded shadow-lg whitespace-nowrap`}>Sort Order</span>
+                <ArrowUpDown className="w-3 h-3 text-cyan-500/50 pointer-events-none absolute right-0" />
               </div>
            </div>
         </div>
         
-        {/* Filter Chips & Status/Favorite Filters */}
-        <div className={`flex flex-col gap-3`}>
-            <div className={`flex gap-2 overflow-x-auto no-scrollbar pb-2 mask-linear-fade`}>
-              <button
-                  onClick={clearTypeFilters}
-                  className={`whitespace-nowrap px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border ${
-                    filterTypes.size === 0 
-                      ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.3)]' 
-                      : 'bg-gray-900/60 border-gray-700 text-gray-500 hover:border-gray-500 hover:bg-gray-800'
-                  }`}
-                  title="Show all rock types"
-                >
-                  All Types
-                </button>
-              {Object.values(RockType).filter(type => type !== RockType.UNKNOWN).map((type) => (
-                <button
-                  key={type}
-                  onClick={() => toggleTypeFilter(type)}
-                  className={`whitespace-nowrap px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border ${
-                    filterTypes.has(type) 
-                      ? 'bg-cyan-600/20 border-cyan-500 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.3)]' 
-                      : 'bg-gray-900/60 border-gray-700 text-gray-500 hover:border-gray-500 hover:bg-gray-800'
-                  }`}
-                  title={`Filter by ${type} type`}
-                >
-                  {type}
-                </button>
+        {/* Tactical Filters */}
+        <div className="flex flex-col gap-3">
+            <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 mask-linear-fade">
+              <FilterButton 
+                active={filterTypes.size === 0} 
+                onClick={() => { setFilterTypes(new Set()); playSound('filter'); }} 
+                label="ALL CLASSES"
+              />
+              {Object.values(RockType).filter(t => t !== 'Unknown').map(type => (
+                <FilterButton 
+                    key={type} 
+                    active={filterTypes.has(type)} 
+                    onClick={() => toggleTypeFilter(type)} 
+                    label={type}
+                />
               ))}
             </div>
 
-            <div className={`flex gap-2`}>
-                {/* Status Filter */}
-                <div className={`flex bg-gray-900/60 border border-gray-700 rounded-full p-0.5 relative group`}>
+            <div className="flex justify-between items-center border-t border-white/5 pt-3">
+                <div className="flex gap-1 bg-black/40 p-1 rounded-lg border border-white/5">
                     {['all', 'approved', 'pending'].map((status) => (
                         <button
                             key={status}
-                            onClick={() => setFilterStatus(status as RockStatusFilter)}
-                            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${
-                                filterStatus === status
-                                ? 'bg-purple-600/20 text-purple-300 shadow-[0_0_10px_rgba(168,85,247,0.2)]'
-                                : 'text-gray-500 hover:text-gray-300'
+                            onClick={() => { setFilterStatus(status as RockStatusFilter); playSound('filter'); }}
+                            className={`px-3 py-1 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all ${
+                                filterStatus === status ? 'bg-cyan-900/50 text-cyan-300 shadow-sm border border-cyan-500/30' : 'text-gray-600 hover:text-gray-400'
                             }`}
                         >
-                            {status === 'all' ? 'All Status' : status}
+                            {status === 'all' ? 'ALL' : status}
                         </button>
                     ))}
-                    <span className={`absolute hidden group-hover:block -top-8 left-1/2 -translate-x-1/2 bg-gray-800/90 text-white text-[9px] px-2 py-1 rounded shadow-lg whitespace-nowrap`}>Filter by Status</span>
                 </div>
 
-                {/* Show Favorites Toggle */}
                 <button
-                    onClick={() => setShowFavorites(prev => !prev)}
-                    className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border ${
-                        showFavorites
-                        ? 'bg-amber-600/20 border-amber-500 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
-                        : 'bg-gray-900/60 border-gray-700 text-gray-500 hover:border-gray-500 hover:bg-gray-800'
+                    onClick={() => { setShowFavorites(p => !p); playSound('filter'); }}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all border ${
+                        showFavorites ? 'bg-amber-900/20 border-amber-500/50 text-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.1)]' : 'bg-transparent border-gray-800 text-gray-500 hover:border-gray-600'
                     }`}
-                    aria-label="Show only favorited rocks"
-                    title="Toggle favorites view"
                 >
-                    <Heart className={`w-3 h-3 ${showFavorites ? 'fill-amber-400 text-amber-400' : 'text-gray-500'}`} />
-                    Favorites
+                    <Heart className={`w-3 h-3 ${showFavorites ? 'fill-amber-400' : ''}`} /> PRIORITY
                 </button>
             </div>
         </div>
       </div>
 
-      {/* Grid */}
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto no-scrollbar -mx-2 px-2 pb-24`}>
+      {/* --- INVENTORY GRID --- */}
+      <div className="flex-1 overflow-y-auto no-scrollbar px-6 pb-32 pt-4 relative z-10">
         {isLoading ? (
-          <div className={`h-64 flex flex-col items-center justify-center space-y-4`}>
-            <Loader2 className={`w-8 h-8 text-cyan-500 animate-spin`} />
-            <p className={`text-cyan-500/50 text-xs font-mono animate-pulse tracking-widest`}>DECRYPTING ARCHIVES...</p>
+          <div className="h-64 flex flex-col items-center justify-center space-y-6">
+            <div className="relative">
+                <div className="w-16 h-16 border-4 border-cyan-900 rounded-full" />
+                <div className="absolute inset-0 border-4 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+                <ScanLine className="absolute inset-0 m-auto text-cyan-500 w-6 h-6 animate-pulse" />
+            </div>
+            <p className="text-cyan-500/50 text-xs font-mono animate-pulse tracking-[0.3em]">DECRYPTING ARCHIVES...</p>
           </div>
         ) : rocks.length === 0 ? (
-          <div className={`h-64 flex flex-col items-center justify-center text-center opacity-30 space-y-4`}>
-            <div className={`w-20 h-20 border-2 border-dashed border-gray-600 rounded-full flex items-center justify-center`}>
-                <Box className={`w-8 h-8 text-gray-600`} />
+          <div className="h-64 flex flex-col items-center justify-center text-center opacity-30 space-y-4">
+            <div className="w-24 h-24 border border-dashed border-gray-600 rounded-2xl flex items-center justify-center bg-gray-900/50">
+                <Box className="w-10 h-10 text-gray-600" />
             </div>
-            <p className={`font-mono text-xs text-gray-500 uppercase tracking-widest`}>VAULT EMPTY</p>
+            <p className="font-mono text-xs text-gray-500 uppercase tracking-widest">NO ASSETS FOUND</p>
           </div>
         ) : (
-          <div className={`grid grid-cols-2 gap-4`}>
+          <div className="grid grid-cols-2 gap-4 auto-rows-max">
             {sortedAndFilteredRocks.map((rock) => (
-              <div 
-                key={rock.id}
-                onClick={() => onRockClick(rock)}
-                className={`group relative aspect-[4/5] cursor-pointer perspective-1000`}
-              >
-                {/* Data Shard Card */}
-                <div className={`absolute inset-0 glass-card rounded-2xl overflow-hidden group-hover:transform group-hover:scale-[1.02] transition-transform duration-500`}>
-                  <div className={`absolute inset-0 bg-gradient-to-t from-gray-900 via-transparent to-transparent z-10 opacity-80`} />
-                  
-                  {/* Parallax Image */}
-                  <img 
-                    ref={el => imageRefs.current[rock.id] = el}
-                    src={rock.imageUrl} 
-                    alt={rock.name} 
-                    className={`parallax-bg`} 
-                  />
-                  
-                  {/* Holographic Sheen */}
-                  <div className={`absolute inset-0 bg-gradient-to-tr from-white/0 via-white/0 to-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500 z-20 pointer-events-none`} />
-
-                  {/* Content Overlay */}
-                  <div className={`absolute bottom-0 left-0 right-0 p-4 z-20 flex flex-col justify-end`}>
-                    <div className={`flex justify-between items-center mb-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 transform translate-y-2 group-hover:translate-y-0`}>
-                       <span className={`text-[8px] font-bold uppercase px-1.5 py-0.5 rounded backdrop-blur-md border ${
-                          rock.type === 'Igneous' ? 'border-red-500/30 text-red-400 bg-red-900/20' :
-                          rock.type === 'Sedimentary' ? 'border-amber-500/30 text-amber-400 bg-amber-900/20' :
-                          rock.type === 'Metamorphic' ? 'border-purple-500/30 text-purple-400 bg-purple-900/20' :
-                          rock.type === 'Mineral' ? 'border-blue-500/30 text-blue-400 bg-blue-900/20' :
-                          rock.type === 'Fossil' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-900/20' :
-                          'border-gray-500/30 text-gray-400 bg-gray-900/20'
-                       }`}>{rock.type}</span>
-                       <div className={`flex items-center gap-1`}>
-                          {rock.rarityScore > 75 && <Sparkles className={`w-3 h-3 text-amber-400 animate-pulse`} />}
-                          <button 
-                            onClick={(e) => toggleFavorite(rock.id, e)} 
-                            className={`p-1 rounded-full bg-black/30 hover:bg-black/50 transition-colors`}
-                            aria-label={favoriteRockIds.has(rock.id) ? "Unfavorite rock" : "Favorite rock"}
-                          >
-                            <Star className={`w-3 h-3 ${favoriteRockIds.has(rock.id) ? 'fill-amber-400 text-amber-400' : 'text-gray-400'}`} />
-                          </button>
-                       </div>
-                    </div>
-                    <div>
-                        <h3 className={`text-white font-bold text-sm truncate leading-tight tracking-wide group-hover:text-cyan-400 transition-colors`}>{rock.name}</h3>
-                        <p className={`text-gray-500 text-[9px] font-mono mt-0.5 uppercase tracking-wider`}>{new Date(rock.dateFound).toLocaleDateString()}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                <SpecimenCard 
+                    key={rock.id} 
+                    rock={rock} 
+                    onClick={() => { playSound('click'); onRockClick(rock); }} 
+                    onToggleFavorite={(e) => toggleFavorite(rock.id, e)}
+                    isFavorite={favoriteRockIds.has(rock.id)}
+                    playSound={playSound}
+                />
             ))}
           </div>
         )}
       </div>
     </div>
   );
+};
+
+// -- MICRO COMPONENTS --
+
+const FilterButton: React.FC<{ active: boolean; onClick: () => void; label: string }> = ({ active, onClick, label }) => (
+    <button
+        onClick={onClick}
+        className={`whitespace-nowrap px-4 py-2 rounded-lg text-[9px] font-bold uppercase tracking-widest transition-all border backdrop-blur-sm ${
+        active 
+            ? 'bg-indigo-600/20 border-indigo-500 text-indigo-300 shadow-[0_0_15px_rgba(99,102,241,0.2)]' 
+            : 'bg-black/40 border-white/5 text-gray-500 hover:border-white/20 hover:text-gray-300'
+        }`}
+    >
+        {label}
+    </button>
+);
+
+const SpecimenCard: React.FC<{ rock: Rock; onClick: () => void; onToggleFavorite: (e: React.MouseEvent) => void; isFavorite: boolean; playSound: any }> = ({ rock, onClick, onToggleFavorite, isFavorite, playSound }) => {
+    const cardRef = useRef<HTMLDivElement>(null);
+    
+    // 3D Tilt Logic
+    const handleMouseMove = (e: React.MouseEvent) => {
+        if (!cardRef.current) return;
+        const rect = cardRef.current.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        
+        // Gentle tilt
+        const rotateX = ((y - centerY) / centerY) * -8;
+        const rotateY = ((x - centerX) / centerX) * 8;
+
+        cardRef.current.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale3d(1.02, 1.02, 1.02)`;
+    };
+
+    const handleMouseLeave = () => {
+        if (cardRef.current) cardRef.current.style.transform = `perspective(1000px) rotateX(0deg) rotateY(0deg) scale3d(1, 1, 1)`;
+    };
+
+    const isLegendary = rock.rarityScore > 80;
+    const isRare = rock.rarityScore > 50 && rock.rarityScore <= 80;
+
+    const borderColor = isLegendary ? 'border-amber-500/50' : isRare ? 'border-indigo-500/50' : 'border-white/10';
+    const glowColor = isLegendary ? 'shadow-amber-500/20' : isRare ? 'shadow-indigo-500/20' : 'shadow-black/50';
+
+    return (
+        <div 
+            ref={cardRef}
+            onClick={onClick}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={handleMouseLeave}
+            onMouseEnter={() => playSound('hover')}
+            className={`specimen-card relative aspect-[3/4] rounded-xl border ${borderColor} bg-[#0a0f18] overflow-hidden cursor-pointer shadow-xl ${glowColor} group transition-all duration-300`}
+        >
+            {/* Holographic Sheen */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-20" />
+            
+            {/* Rarity Particles */}
+            {isLegendary && <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(245,158,11,0.2),transparent_70%)] animate-pulse z-10 pointer-events-none" />}
+
+            {/* Background Image with Parallax hint */}
+            <div className="absolute inset-0 z-0">
+                <img src={rock.imageUrl} alt={rock.name} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-500 scale-110" />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0f18] via-[#0a0f18]/20 to-transparent" />
+            </div>
+
+            {/* Content Layer */}
+            <div className="specimen-content absolute inset-0 p-4 flex flex-col justify-between z-20">
+                <div className="flex justify-between items-start">
+                    {/* ID Badge */}
+                    <div className="px-2 py-1 rounded bg-black/60 border border-white/10 backdrop-blur-md text-[8px] font-mono text-cyan-400">
+                        {rock.id.slice(0, 4).toUpperCase()}
+                    </div>
+                    
+                    {/* Favorite Button */}
+                    <button 
+                        onClick={onToggleFavorite}
+                        className={`p-1.5 rounded-full backdrop-blur-md transition-all ${isFavorite ? 'bg-amber-500/20 text-amber-400' : 'bg-black/40 text-gray-500 hover:text-white'}`}
+                    >
+                        <Star className={`w-3 h-3 ${isFavorite ? 'fill-current' : ''}`} />
+                    </button>
+                </div>
+
+                <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                        <span className={`w-1.5 h-1.5 rounded-full ${isLegendary ? 'bg-amber-500 animate-ping' : 'bg-cyan-500'}`} />
+                        <span className="text-[9px] font-bold uppercase tracking-widest text-gray-400 group-hover:text-cyan-300 transition-colors">
+                            {rock.type}
+                        </span>
+                    </div>
+                    <h3 className="text-white font-bold text-lg leading-tight group-hover:text-cyan-400 transition-colors">
+                        {rock.name}
+                    </h3>
+                    <div className="flex justify-between items-end border-t border-white/10 pt-2 mt-2">
+                        <span className="text-[9px] text-gray-600 font-mono">{new Date(rock.dateFound).toLocaleDateString()}</span>
+                        {isLegendary && <Sparkles className="w-3 h-3 text-amber-400" />}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 };
