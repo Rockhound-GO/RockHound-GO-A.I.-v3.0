@@ -1,7 +1,6 @@
 
-
 import React, { useRef, useState, useCallback, useEffect } from 'react';
-import { Camera, Upload, Zap, Aperture, Target, Scan, X, Focus, Lightbulb } from 'lucide-react'; // Added Focus, Lightbulb
+import { Camera, Upload, Zap, Aperture, Target, Scan, X, Focus, Lightbulb } from 'lucide-react';
 import { identifyRock, generateReferenceImage } from '../services/geminiService';
 import { Rock, RockAnalysis } from '../types';
 import toast from 'react-hot-toast';
@@ -52,19 +51,18 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
   }, []);
 
   useEffect(() => {
-    // Replaced NodeJS.Timeout with `number` as `setTimeout` and `setInterval` in browser environments return a numeric ID.
     let messageInterval: number;
     if (isAnalyzing) {
         let currentIndex = 0;
         messageInterval = setInterval(() => {
             currentIndex = (currentIndex + 1) % statusMessages.length;
             setCurrentStatusMessage(statusMessages[currentIndex]);
-        }, 1500); // Change message every 1.5 seconds
+        }, 1500);
     } else {
-        setCurrentStatusMessage(statusMessages[0]); // Reset when not analyzing
+        setCurrentStatusMessage(statusMessages[0]);
     }
     return () => clearInterval(messageInterval);
-}, [isAnalyzing]);
+  }, [isAnalyzing]);
 
 
   const stopCamera = useCallback(() => {
@@ -116,7 +114,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
   useEffect(() => {
     if (capturedImage) {
       stopCamera();
-      setLightingOptimal(false); // Reset lighting feedback
+      setLightingOptimal(false);
       return;
     }
     if (permissionState === 'denied') {
@@ -130,9 +128,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
   }, [capturedImage, permissionState, startCamera, stopCamera]);
 
   const capturePhoto = () => {
-    // Haptic Feedback
     if (navigator.vibrate) navigator.vibrate(50);
-    // Audio Cue
     if (captureShutterAudioRef.current) captureShutterAudioRef.current.play();
 
     if (videoRef.current && canvasRef.current) {
@@ -145,9 +141,9 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
         ctx.drawImage(video, 0, 0);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
         setCapturedImage(dataUrl);
-        setPreviousGuesses([]); // Reset guesses for new photo
+        setPreviousGuesses([]);
         stopCamera();
-        setLightingOptimal(false); // Reset lighting feedback
+        setLightingOptimal(false);
       }
     }
   };
@@ -155,17 +151,15 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Haptic Feedback (simulated for upload)
       if (navigator.vibrate) navigator.vibrate(30);
-      // Audio Cue
       if (captureShutterAudioRef.current) captureShutterAudioRef.current.play();
 
       const reader = new FileReader();
       reader.onloadend = () => {
         setCapturedImage(reader.result as string);
-        setPreviousGuesses([]); // Reset guesses for new photo
+        setPreviousGuesses([]);
         stopCamera();
-        setLightingOptimal(false); // Reset lighting feedback
+        setLightingOptimal(false);
       };
       reader.readAsDataURL(file);
     }
@@ -179,7 +173,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
     setPreviousGuesses([]);
     setShowManualCorrection(false);
     setManualName('');
-    setLightingOptimal(false); // Reset lighting feedback
+    setLightingOptimal(false);
   };
 
   const analyzeRock = async (guessesToExclude: string[] = []) => {
@@ -188,12 +182,12 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
     setIsAnalyzing(true);
     setComparisonImageUrl(null);
     const message = guessesToExclude.length > 0 ? "RE-CALIBRATING..." : "INITIATING SCAN...";
-    toast.loading(message, { id: 'scan-toast' });
+    toast.loading(message, { id: 'scan-toast', className: 'glass-panel text-cyan-400 border-cyan-500/30' });
     
     try {
       const result = await identifyRock(capturedImage, guessesToExclude);
       setAnalysis(result);
-      toast.success("IDENTITY CONFIRMED", { id: 'scan-toast', icon: '🧬' });
+      toast.success("IDENTITY CONFIRMED", { id: 'scan-toast', icon: '🧬', className: 'glass-panel text-green-400 border-green-500/30' });
 
       setIsGeneratingComparison(true);
       try {
@@ -207,7 +201,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
 
     } catch (error) {
       console.error(error);
-      toast.error("SCAN FAILED. RETRY.", { id: 'scan-toast' });
+      toast.error("SCAN FAILED. RETRY.", { id: 'scan-toast', className: 'glass-panel text-red-400 border-red-500/30' });
       setAnalysis(null);
     } finally {
       setIsAnalyzing(false);
@@ -288,18 +282,18 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
 
           {/* Data Readouts */}
           <div className="absolute top-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1">
-             <div className="text-[10px] text-cyan-500/70 tracking-[0.3em] font-bold">SYSTEM ACTIVE</div>
+             <div className="text-[10px] text-cyan-500/70 tracking-[0.3em] font-bold text-glow">SYSTEM ACTIVE</div>
              <div className="w-32 h-[1px] bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
           </div>
 
           {/* Live Camera Instructions & Lighting Feedback */}
           {!capturedImage && !cameraError && (
              <div className="absolute bottom-32 left-0 right-0 flex flex-col items-center gap-3 z-30">
-                <p className="text-sm text-white/80 uppercase tracking-wider font-sans animate-in fade-in duration-500">
+                <p className="text-sm text-white/80 uppercase tracking-wider font-sans animate-in fade-in duration-500 text-glow">
                     CENTER SPECIMEN FOR ANALYSIS
                 </p>
                 {lightingOptimal ? (
-                    <div className="flex items-center gap-2 text-green-400 text-xs uppercase animate-in fade-in duration-500">
+                    <div className="flex items-center gap-2 text-green-400 text-xs uppercase animate-in fade-in duration-500 text-glow">
                         <Lightbulb className="w-4 h-4" /> OPTIMAL LIGHTING DETECTED
                     </div>
                 ) : (
@@ -327,6 +321,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
                 <div className="absolute inset-0 z-0">
                   <video ref={videoRef} autoPlay playsInline className={`w-full h-full object-cover`} />
                   <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/80" />
+                  <div className="absolute inset-0 scanline" /> {/* Add scanline effect */}
                 </div>
                 
                 <div className="absolute bottom-8 left-0 right-0 flex justify-center items-center gap-12 z-30">
@@ -345,14 +340,14 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
                       </div>
                    </button>
 
-                   <div className="w-12" /> {/* Spacer */}
+                   <div className="w-12" />
                 </div>
              </>
            )}
         </div>
       ) : (
         <div className="flex-1 flex flex-col relative bg-[#030712] overflow-hidden">
-           {/* Scan Overlay Effect - now a holographic grid */}
+           {/* Scan Overlay Effect - holographic grid */}
            {isAnalyzing && (
               <div className="absolute inset-0 z-50 pointer-events-none bg-[radial-gradient(ellipse_at_center,_rgba(99,102,241,0.1)_0%,_transparent_70%)]">
                  <div className="absolute inset-0 bg-[linear-gradient(rgba(0,255,255,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(0,255,255,0.1)_1px,transparent_1px)] bg-[size:20px_20px] bg-repeat animate-scan-grid" />
@@ -364,7 +359,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
           <div className="h-[40vh] w-full flex relative border-b border-gray-800">
              <div className="flex-1 relative border-r border-gray-800 overflow-hidden">
                 <img src={capturedImage} className="w-full h-full object-cover" />
-                <div className="absolute top-4 left-4 bg-black/70 backdrop-blur px-2 py-1 rounded-md text-[9px] text-cyan-400 border border-cyan-500/20 tracking-wider">SOURCE_INPUT</div>
+                <div className="absolute top-4 left-4 glass-panel px-2 py-1 rounded-md text-[9px] text-cyan-400 tracking-wider">SOURCE_INPUT</div>
              </div>
              <div className="flex-1 relative bg-black/50 overflow-hidden flex items-center justify-center">
                 {isGeneratingComparison ? (
@@ -375,7 +370,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
                 ) : comparisonImageUrl ? (
                    <>
                     <img src={comparisonImageUrl} className="w-full h-full object-cover" />
-                    <div className="absolute top-4 right-4 bg-black/70 backdrop-blur px-2 py-1 rounded-md text-[9px] text-indigo-400 border border-indigo-500/20 tracking-wider">DB_MATCH</div>
+                    <div className="absolute top-4 right-4 glass-panel px-2 py-1 rounded-md text-[9px] text-indigo-400 tracking-wider">DB_MATCH</div>
                    </>
                 ) : (
                    <span className="text-[9px] text-gray-600 tracking-widest">NO_REF_DATA</span>
@@ -388,11 +383,11 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
             {!analysis && !isAnalyzing && (
               <div className="flex flex-col items-center justify-center flex-1 space-y-8 p-6">
                  <div className="text-center space-y-2">
-                    <h2 className="text-2xl font-bold text-white tracking-[0.2em] font-sans">SCAN COMPLETE</h2>
+                    <h2 className="text-2xl font-bold text-white tracking-[0.2em] font-sans text-glow">SCAN COMPLETE</h2>
                     <p className="text-gray-500 text-xs uppercase tracking-wide">Specimen locked. Awaiting command.</p>
                  </div>
                  <div className="flex gap-4 w-full max-w-sm">
-                    <button onClick={handleReset} className="flex-1 py-4 bg-gray-900 border border-gray-700 text-gray-400 rounded-xl text-xs uppercase hover:bg-gray-800 transition-all">Discard</button>
+                    <button onClick={handleReset} className="flex-1 py-4 glass-panel text-gray-400 rounded-xl text-xs uppercase hover:bg-gray-800 transition-all border-gray-700">Discard</button>
                     <button onClick={() => analyzeRock(previousGuesses)} className="flex-1 py-4 bg-indigo-600/20 border border-indigo-500/50 text-indigo-300 rounded-xl text-xs uppercase hover:bg-indigo-600/30 transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(99,102,241,0.2)]">
                        <Zap className="w-4 h-4" /> {previousGuesses.length > 0 ? 'Try Again' : 'Identify'}
                     </button>
@@ -402,15 +397,15 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
 
             {isAnalyzing && (
               <div className="flex flex-col items-center justify-center flex-1 space-y-6 p-6">
-                 <div className="relative w-28 h-28"> {/* Larger container for more complex animation */}
-                    <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full animate-pulse" /> {/* Outer pulse */}
-                    <div className="absolute inset-2 border-t-4 border-b-4 border-cyan-500/40 rounded-full animate-spin-slow" /> {/* Slower spin */}
-                    <div className="absolute inset-4 border-r-4 border-l-4 border-indigo-500/80 rounded-full animate-spin-reverse" /> {/* Faster reverse spin */}
-                    <Aperture className="absolute inset-0 m-auto w-10 h-10 text-cyan-400 animate-pulse-fast" /> {/* Central icon */}
+                 <div className="relative w-32 h-32">
+                    <div className="absolute inset-0 border-4 border-indigo-500/20 rounded-full animate-pulse" />
+                    <div className="absolute inset-2 border-t-4 border-b-4 border-cyan-500/40 rounded-full animate-spin-slow" />
+                    <div className="absolute inset-4 border-r-4 border-l-4 border-indigo-500/80 rounded-full animate-spin-reverse" />
+                    <Aperture className="absolute inset-0 m-auto w-12 h-12 text-cyan-400 animate-pulse-fast drop-shadow-[0_0_10px_rgba(6,182,212,0.8)]" />
                  </div>
                  <div className="text-center space-y-2">
-                    <p className="text-indigo-400 text-xs animate-pulse tracking-[0.2em]">
-                        {currentStatusMessage} {/* Dynamically cycle through status messages */}
+                    <p className="text-indigo-400 text-xs animate-pulse tracking-[0.2em] text-glow">
+                        {currentStatusMessage}
                     </p>
                     {previousGuesses.length > 0 && (
                         <p className="text-red-400/70 text-[10px] uppercase tracking-widest">Excluding: {previousGuesses.join(', ')}</p>
@@ -423,44 +418,47 @@ export const Scanner: React.FC<ScannerProps> = ({ onIdentify }) => {
               <div className="p-6 space-y-6 animate-in slide-in-from-bottom-10 fade-in duration-500 pb-24">
                 <div className="flex justify-between items-start">
                    <div>
-                      <h2 className="text-3xl font-bold text-white tracking-tight font-sans mb-1">{analysis.name.toUpperCase()}</h2>
-                      <div className="inline-block px-2 py-0.5 border border-indigo-500/30 bg-indigo-500/10 rounded text-[10px] text-indigo-300 uppercase tracking-wider">
+                      <h2 className="text-3xl font-bold text-white tracking-tight font-sans mb-1 text-glow">{analysis.name.toUpperCase()}</h2>
+                      <div className="inline-block px-2 py-0.5 border border-indigo-500/30 bg-indigo-500/10 rounded text-[10px] text-indigo-300 uppercase tracking-wider backdrop-blur-sm">
                         {analysis.type} CLASS
                       </div>
                    </div>
                    <div className="flex flex-col items-end">
                       <span className="text-[9px] text-gray-500 uppercase mb-1">Rarity</span>
-                      <div className={`text-xl font-bold ${analysis.rarityScore > 80 ? 'text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-cyan-400'}`}>
+                      <div className={`text-xl font-bold ${analysis.rarityScore > 80 ? 'text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-cyan-400 text-glow'}`}>
                          {analysis.rarityScore}<span className="text-sm text-gray-600">/100</span>
                       </div>
                    </div>
                 </div>
 
-                <p className="text-gray-300 text-sm leading-relaxed border-l-2 border-indigo-500/30 pl-4 font-light">
-                   {analysis.description}
-                </p>
+                <div className="glass-panel p-4 rounded-xl border-l-2 border-l-indigo-500">
+                    <p className="text-gray-300 text-sm leading-relaxed font-light">
+                    {analysis.description}
+                    </p>
+                </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                   <div className="bg-gray-900 p-3 rounded-lg border border-gray-800">
+                   <div className="glass-panel p-3 rounded-lg border border-gray-800">
                       <div className="text-[9px] text-gray-500 uppercase mb-2">Hardness (Mohs)</div>
                       <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
                          <div className="h-full bg-gradient-to-r from-cyan-500 to-indigo-500" style={{ width: `${analysis.hardness * 10}%`}} />
                       </div>
                       <div className="text-right text-xs text-white mt-1 font-bold">{analysis.hardness}/10</div>
                    </div>
-                   <div className="bg-gray-900 p-3 rounded-lg border border-gray-800 flex items-center justify-center">
+                   <div className="glass-panel p-3 rounded-lg border border-gray-800 flex items-center justify-center">
                       <p className="text-[10px] text-gray-400 italic text-center leading-tight">"{analysis.funFact}"</p>
                    </div>
                 </div>
 
                 <div className="flex flex-col gap-3 pt-4">
-                   <button onClick={() => saveRock(analysis, 'approved')} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-cyan-600 text-white font-bold text-sm uppercase rounded-xl shadow-[0_0_30px_rgba(99,102,241,0.3)] hover:shadow-[0_0_40px_rgba(99,102,241,0.5)] transition-all tracking-wider">
-                      Log Specimen
+                   <button onClick={() => saveRock(analysis, 'approved')} className="w-full py-4 bg-gradient-to-r from-indigo-600 to-cyan-600 text-white font-bold text-sm uppercase rounded-xl shadow-[0_0_30px_rgba(99,102,241,0.3)] hover:shadow-[0_0_40px_rgba(99,102,241,0.5)] transition-all tracking-wider relative overflow-hidden group">
+                      <span className="relative z-10">Log Specimen</span>
+                      <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300" />
                    </button>
                    <div className="flex gap-3">
-                      <button onClick={handleReset} className="flex-1 py-3 text-[10px] text-gray-500 hover:text-white uppercase tracking-wider transition-colors bg-gray-900 rounded-lg">Discard</button>
-                      <button onClick={handleRetry} className="flex-1 py-3 text-[10px] text-amber-500/80 hover:text-amber-400 uppercase tracking-wider transition-colors bg-amber-900/10 rounded-lg">Incorrect? Retry</button>
-                      <button onClick={() => setShowManualCorrection(true)} className="flex-1 py-3 text-[10px] text-indigo-400 hover:text-white uppercase tracking-wider transition-colors bg-indigo-900/10 rounded-lg">Edit</button>
+                      <button onClick={handleReset} className="flex-1 py-3 text-[10px] text-gray-500 hover:text-white uppercase tracking-wider transition-colors bg-gray-900 rounded-lg border border-gray-800">Discard</button>
+                      <button onClick={handleRetry} className="flex-1 py-3 text-[10px] text-amber-500/80 hover:text-amber-400 uppercase tracking-wider transition-colors bg-amber-900/10 rounded-lg border border-amber-900/30">Incorrect? Retry</button>
+                      <button onClick={() => setShowManualCorrection(true)} className="flex-1 py-3 text-[10px] text-indigo-400 hover:text-white uppercase tracking-wider transition-colors bg-indigo-900/10 rounded-lg border border-indigo-900/30">Edit</button>
                    </div>
                 </div>
               </div>

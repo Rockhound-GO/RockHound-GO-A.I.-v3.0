@@ -1,15 +1,14 @@
 
-
 import React, { useMemo } from 'react';
 import { Rock, RockType, Achievement } from '../types';
 import { User } from '../services/api';
-import { Gem, Compass, Sprout, BarChart3, Microscope, Shield, Star, Award, Mountain, Crown } from 'lucide-react';
+import { Gem, Compass, Sprout, BarChart3, Microscope, Shield, Star, Award, Mountain, Crown, Lock } from 'lucide-react';
 
 const ALL_ACHIEVEMENTS: Achievement[] = [
   {
     id: 'first_find',
-    title: 'First Find',
-    description: 'Identify your very first rock.',
+    title: 'First Contact',
+    description: 'Log your initial discovery.',
     icon: Sprout,
     xpReward: 50,
     goal: 1,
@@ -17,8 +16,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'collector_1',
-    title: 'Novice Collector',
-    description: 'Collect 10 different specimens.',
+    title: 'Data Hoarder',
+    description: 'Archive 10 unique specimens.',
     icon: Award,
     xpReward: 100,
     goal: 10,
@@ -26,8 +25,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'collector_2',
-    title: 'Adept Collector',
-    description: 'Collect 50 different specimens.',
+    title: 'Vault Keeper',
+    description: 'Archive 50 unique specimens.',
     icon: Star,
     xpReward: 500,
     goal: 50,
@@ -35,8 +34,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'geologist_1',
-    title: 'Geologist in Training',
-    description: 'Reach Level 5.',
+    title: 'Field Operative',
+    description: 'Attain Clearance Level 5.',
     icon: BarChart3,
     xpReward: 250,
     goal: 5,
@@ -44,8 +43,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'geologist_2',
-    title: 'Senior Geologist',
-    description: 'Reach Level 10.',
+    title: 'Sector Commander',
+    description: 'Attain Clearance Level 10.',
     icon: Crown,
     xpReward: 1000,
     goal: 10,
@@ -53,8 +52,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'igneous_expert',
-    title: 'Igneous Investigator',
-    description: 'Identify 5 Igneous rocks.',
+    title: 'Magmaborn',
+    description: 'Analyze 5 Igneous formations.',
     icon: Mountain,
     xpReward: 150,
     goal: 5,
@@ -62,8 +61,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'sedimentary_expert',
-    title: 'Sedimentary Sleuth',
-    description: 'Identify 5 Sedimentary rocks.',
+    title: 'Time Walker',
+    description: 'Analyze 5 Sedimentary layers.',
     icon: Compass,
     xpReward: 150,
     goal: 5,
@@ -71,8 +70,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'metamorphic_expert',
-    title: 'Metamorphic Master',
-    description: 'Identify 5 Metamorphic rocks.',
+    title: 'Pressure Cooker',
+    description: 'Analyze 5 Metamorphic samples.',
     icon: Shield,
     xpReward: 150,
     goal: 5,
@@ -80,8 +79,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'mineral_expert',
-    title: 'Mineral Maven',
-    description: 'Identify 10 Minerals.',
+    title: 'Crystal Gazer',
+    description: 'Analyze 10 pure Minerals.',
     icon: Microscope,
     xpReward: 150,
     goal: 10,
@@ -89,8 +88,8 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
   },
   {
     id: 'high_roller',
-    title: 'High Roller',
-    description: 'Find a specimen with rarity over 75.',
+    title: 'Anomaly Hunter',
+    description: 'Secure a specimen with >75 Rarity.',
     icon: Gem,
     xpReward: 200,
     goal: 1,
@@ -118,48 +117,65 @@ export const Achievements: React.FC<AchievementsProps> = ({ user, rocks }) => {
   }, [user, rocks]);
 
   return (
-    <div className={`h-full p-6 space-y-6 overflow-y-auto no-scrollbar pb-20`}>
-      <h2 className={`text-2xl font-bold text-white mb-2`}>Achievements</h2>
-      <div className={`space-y-3`}>
+    <div className={`h-full p-6 space-y-6 overflow-y-auto no-scrollbar pb-24 font-mono bg-[#030712]`}>
+      <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+        <h2 className={`text-xl font-bold text-white uppercase tracking-[0.2em] text-glow`}>Honor Roll</h2>
+        <div className="text-[10px] text-gray-500 uppercase tracking-widest">
+            {processedAchievements.filter(a => a.isCompleted).length} / {processedAchievements.length} UNLOCKED
+        </div>
+      </div>
+
+      <div className={`grid grid-cols-1 gap-4`}>
         {processedAchievements.map(ach => (
           <div 
             key={ach.id}
             className={`
-              p-4 rounded-2xl border flex items-center gap-4 transition-all duration-300
+              relative p-4 rounded-xl border transition-all duration-500 overflow-hidden group
               ${ach.isCompleted 
-                ? 'bg-gradient-to-br from-emerald-900/40 to-gray-800/30 border-emerald-500/30 shadow-lg shadow-emerald-500/10' 
-                : 'bg-gray-800/40 border-gray-700/50'}
+                ? 'bg-gradient-to-r from-emerald-900/20 to-gray-900 border-emerald-500/30'
+                : 'bg-gray-900/40 border-gray-800 grayscale-[0.5]'}
             `}
           >
-            <div className={`
-              w-12 h-12 rounded-lg flex-none flex items-center justify-center transition-colors
-              ${ach.isCompleted 
-                ? 'bg-emerald-500/20 text-emerald-400' 
-                : 'bg-gray-700/50 text-gray-400'}
-            `}>
-              <ach.icon className={`w-6 h-6`} />
-            </div>
-            <div className={`flex-1`}>
-              <div className={`flex justify-between items-baseline`}>
-                <h3 className={`font-bold transition-colors ${ach.isCompleted ? 'text-white' : 'text-gray-300'}`}>
-                  {ach.title}
-                </h3>
-                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full transition-colors ${ach.isCompleted ? 'bg-emerald-500/20 text-emerald-300' : 'bg-gray-700 text-gray-400'}`}>
-                  +{ach.xpReward} XP
-                </span>
-              </div>
-              <p className={`text-xs text-gray-400 mt-1`}>{ach.description}</p>
-              <div className={`flex items-center gap-2 mt-2`}>
-                <div className={`w-full h-1.5 bg-gray-700/50 rounded-full overflow-hidden`}>
-                  <div 
-                    className={`h-full transition-all duration-500 ${ach.isCompleted ? 'bg-emerald-500' : 'bg-indigo-500'}`}
-                    style={{ width: `${ach.progressPercent}%` }}
-                  />
+            {/* Holographic Sheen for completed */}
+            {ach.isCompleted && (
+                <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-transparent pointer-events-none opacity-50" />
+            )}
+
+            <div className="flex items-center gap-4 relative z-10">
+                <div className={`
+                w-14 h-14 rounded-lg flex-none flex items-center justify-center border shadow-lg transition-transform group-hover:scale-105
+                ${ach.isCompleted
+                    ? 'bg-emerald-900/30 border-emerald-500/50 text-emerald-400 shadow-emerald-500/20'
+                    : 'bg-gray-800 border-gray-700 text-gray-600'}
+                `}>
+                {ach.isCompleted ? <ach.icon className={`w-7 h-7`} /> : <Lock className="w-6 h-6 opacity-50" />}
                 </div>
-                <span className={`text-[10px] text-gray-500 font-mono`}>
-                  {Math.min(ach.currentProgress, ach.goal)}/{ach.goal}
-                </span>
-              </div>
+
+                <div className={`flex-1 min-w-0`}>
+                <div className={`flex justify-between items-center mb-1`}>
+                    <h3 className={`font-bold text-sm tracking-wide truncate ${ach.isCompleted ? 'text-white text-glow' : 'text-gray-500'}`}>
+                    {ach.title}
+                    </h3>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${ach.isCompleted ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-gray-800 border-gray-700 text-gray-600'}`}>
+                    XP +{ach.xpReward}
+                    </span>
+                </div>
+
+                <p className={`text-[10px] text-gray-400 mb-3 truncate`}>{ach.description}</p>
+
+                {/* Progress Bar */}
+                <div className="relative w-full h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                    <div
+                        className={`absolute top-0 left-0 h-full transition-all duration-1000 ease-out ${ach.isCompleted ? 'bg-emerald-500 shadow-[0_0_10px_#10b981]' : 'bg-indigo-500'}`}
+                        style={{ width: `${ach.progressPercent}%` }}
+                    />
+                </div>
+                <div className="flex justify-end mt-1">
+                    <span className={`text-[9px] font-mono ${ach.isCompleted ? 'text-emerald-500' : 'text-gray-600'}`}>
+                        {Math.min(ach.currentProgress, ach.goal)} / {ach.goal}
+                    </span>
+                </div>
+                </div>
             </div>
           </div>
         ))}
