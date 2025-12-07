@@ -10,6 +10,7 @@ import { CloverOverlay } from './components/CloverOverlay';
 import { CloverButton } from './components/CloverButton';
 import { SyncStatus } from './components/SyncStatus';
 import { useVisitedViews } from './hooks/useVisitedViews';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 const Scanner = lazy(() => import('./components/Scanner').then(module => ({ default: module.Scanner })));
 const Collection = lazy(() => import('./components/Collection').then(module => ({ default: module.Collection })));
@@ -217,30 +218,32 @@ const App: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 w-full h-full relative z-10 pt-safe pb-safe overflow-hidden">
-        <Suspense fallback={
-            <div className="h-full flex flex-col items-center justify-center bg-black">
-                <div className="relative w-16 h-16">
-                    <div className="absolute inset-0 border-t-2 border-cyan-500 rounded-full animate-spin" />
-                    <div className="absolute inset-2 border-r-2 border-indigo-500 rounded-full animate-spin-reverse" />
-                </div>
-                <div className="mt-6 text-xs font-mono text-cyan-500 tracking-[0.3em] animate-pulse">LOADING MODULE...</div>
-            </div>
-        }>
-          {(() => {
-            switch (currentView) {
-              case View.SCANNER: return <Scanner onIdentify={addToCollection} />;
-              case View.COLLECTION: return <Collection rocks={collection} onRockClick={handleRockClick} isLoading={isLoadingData} />;
-              case View.STATS: return <Statistics rocks={collection} />;
-              case View.DETAILS: return selectedRock ? <RockDetails rock={selectedRock} onBack={() => handleViewChange(View.COLLECTION)} onDelete={handleDeleteRock} /> : <Collection rocks={collection} onRockClick={handleRockClick} />;
-              case View.PROFILE: return <Profile user={user} onUpdateUser={handleUpdateUser} onBack={() => handleViewChange(View.SCANNER)} onReplayIntro={() => { setCloverMode('INTRO'); setShowClover(true); }} />;
-              case View.ADMIN: return <AdminDashboard onBack={() => handleViewChange(View.SCANNER)} />;
-              case View.MAP: return <UserMap rocks={collection} onRockClick={handleRockClick} />;
-              case View.WEATHER: return <WeatherDashboard onBack={() => handleViewChange(View.SCANNER)} />;
-              case View.ACHIEVEMENTS: return <Achievements user={user} rocks={collection} />;
-              default: return <Scanner onIdentify={addToCollection} />;
-            }
-          })()}
-        </Suspense>
+        <ErrorBoundary>
+          <Suspense fallback={
+              <div className="h-full flex flex-col items-center justify-center bg-black">
+                  <div className="relative w-16 h-16">
+                      <div className="absolute inset-0 border-t-2 border-cyan-500 rounded-full animate-spin" />
+                      <div className="absolute inset-2 border-r-2 border-indigo-500 rounded-full animate-spin-reverse" />
+                  </div>
+                  <div className="mt-6 text-xs font-mono text-cyan-500 tracking-[0.3em] animate-pulse">LOADING MODULE...</div>
+              </div>
+          }>
+            {(() => {
+              switch (currentView) {
+                case View.SCANNER: return <Scanner onIdentify={addToCollection} />;
+                case View.COLLECTION: return <Collection rocks={collection} onRockClick={handleRockClick} isLoading={isLoadingData} />;
+                case View.STATS: return <Statistics rocks={collection} />;
+                case View.DETAILS: return selectedRock ? <RockDetails rock={selectedRock} onBack={() => handleViewChange(View.COLLECTION)} onDelete={handleDeleteRock} /> : <Collection rocks={collection} onRockClick={handleRockClick} />;
+                case View.PROFILE: return <Profile user={user} onUpdateUser={handleUpdateUser} onBack={() => handleViewChange(View.SCANNER)} onReplayIntro={() => { setCloverMode('INTRO'); setShowClover(true); }} />;
+                case View.ADMIN: return <AdminDashboard onBack={() => handleViewChange(View.SCANNER)} />;
+                case View.MAP: return <UserMap rocks={collection} onRockClick={handleRockClick} />;
+                case View.WEATHER: return <WeatherDashboard onBack={() => handleViewChange(View.SCANNER)} />;
+                case View.ACHIEVEMENTS: return <Achievements user={user} rocks={collection} />;
+                default: return <Scanner onIdentify={addToCollection} />;
+              }
+            })()}
+          </Suspense>
+        </ErrorBoundary>
       </main>
 
       {/* Floating Holographic Dock */}
