@@ -1,8 +1,7 @@
 
-
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Rock, RockType } from '../types';
-import { Search, Filter, ArrowUpDown, Loader2, Sparkles, Box, Star, Heart } from 'lucide-react'; // Added Star, Heart
+import { Search, Filter, ArrowUpDown, Loader2, Sparkles, Box, Star, Heart } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 interface CollectionProps {
@@ -16,16 +15,15 @@ type RockStatusFilter = 'all' | 'approved' | 'pending';
 
 export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLoading = false }) => {
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterTypes, setFilterTypes] = useState<Set<RockType>>(new Set()); // Changed to Set for multi-selection
-  const [filterStatus, setFilterStatus] = useState<RockStatusFilter>('all'); // New status filter
-  const [showFavorites, setShowFavorites] = useState(false); // New favorite filter
-  const [favoriteRockIds, setFavoriteRockIds] = useState<Set<string>>(new Set()); // Store favorite IDs
+  const [filterTypes, setFilterTypes] = useState<Set<RockType>>(new Set());
+  const [filterStatus, setFilterStatus] = useState<RockStatusFilter>('all');
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [favoriteRockIds, setFavoriteRockIds] = useState<Set<string>>(new Set());
   const [sortOrder, setSortOrder] = useState<SortOrder>('date_desc');
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const imageRefs = useRef<Record<string, HTMLImageElement | null>>({});
 
-  // Load favorites from localStorage on mount
   useEffect(() => {
     const storedFavorites = localStorage.getItem('rockhound_favorites');
     if (storedFavorites) {
@@ -33,12 +31,10 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
     }
   }, []);
 
-  // Save favorites to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('rockhound_favorites', JSON.stringify(Array.from(favoriteRockIds)));
   }, [favoriteRockIds]);
 
-  // Parallax Effect Logic
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
 
@@ -46,18 +42,15 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
     const viewportHeight = scrollContainerRef.current.clientHeight;
 
     Object.entries(imageRefs.current).forEach(([, img]) => {
-      // Fix: Explicitly check if img is an HTMLImageElement and has a parentElement
       if (img instanceof HTMLImageElement && img.parentElement) {
         const cardTop = img.parentElement.offsetTop - scrollY;
         const cardBottom = cardTop + img.parentElement.clientHeight;
 
-        // Only update if card is somewhat in viewport
         if (cardBottom > 0 && cardTop < viewportHeight) {
           const center = cardTop + img.parentElement.clientHeight / 2;
           const viewportCenter = viewportHeight / 2;
-          const offset = (center - viewportCenter) * 0.05; // Adjust multiplier for intensity
+          const offset = (center - viewportCenter) * 0.05;
 
-          // Fix: Access style directly after type guard
           img.style.transform = `translateY(${offset}px)`;
         }
       }
@@ -68,7 +61,6 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
     const container = scrollContainerRef.current;
     if (container) {
       container.addEventListener('scroll', handleScroll);
-      // Initial parallax application
       handleScroll(); 
     }
     return () => {
@@ -76,10 +68,10 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
         container.removeEventListener('scroll', handleScroll);
       }
     };
-  }, [rocks, handleScroll]); // Re-run effect if rocks change to ensure all images are tracked
+  }, [rocks, handleScroll]);
 
   const toggleFavorite = (rockId: string, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent card click
+    event.stopPropagation();
     setFavoriteRockIds(prev => {
       const newFavorites = new Set(prev);
       if (newFavorites.has(rockId)) {
@@ -140,12 +132,12 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
   return (
     <div className={`h-full flex flex-col px-4 pt-20 pb-24 space-y-6 overflow-hidden`}>
       <div className={`space-y-4 flex-none z-10`}>
-        <h2 className={`text-2xl font-bold text-white tracking-widest uppercase mb-1`}>Vault</h2>
+        <h2 className={`text-2xl font-bold text-white tracking-widest uppercase mb-1 text-glow`}>Vault</h2>
         
         {/* Search Bar & Sort */}
         <div className={`relative group`}>
            <div className={`absolute inset-0 bg-indigo-500/20 rounded-2xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
-           <div className={`relative flex items-center bg-[#0f172a]/60 backdrop-blur-xl border border-white/10 rounded-2xl px-4 py-3 shadow-lg`}>
+           <div className={`relative flex items-center glass-panel rounded-2xl px-4 py-3 shadow-lg`}>
               <Search className={`w-4 h-4 text-gray-400 mr-3`} />
               <input 
                 type="text" 
@@ -170,7 +162,6 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
                   <option value="rarity_asc" className={`bg-gray-900`}>Rarity (Low-High)</option>
                 </select>
                 <ArrowUpDown className={`absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-500 pointer-events-none group-hover:text-cyan-400 transition-colors`} />
-                <span className={`absolute hidden group-hover:block -top-8 left-1/2 -translate-x-1/2 bg-gray-800/90 text-white text-[9px] px-2 py-1 rounded shadow-lg whitespace-nowrap`}>Sort Order</span>
               </div>
            </div>
         </div>
@@ -221,7 +212,6 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
                             {status === 'all' ? 'All Status' : status}
                         </button>
                     ))}
-                    <span className={`absolute hidden group-hover:block -top-8 left-1/2 -translate-x-1/2 bg-gray-800/90 text-white text-[9px] px-2 py-1 rounded shadow-lg whitespace-nowrap`}>Filter by Status</span>
                 </div>
 
                 {/* Show Favorites Toggle */}
@@ -232,8 +222,6 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
                         ? 'bg-amber-600/20 border-amber-500 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.3)]'
                         : 'bg-gray-900/60 border-gray-700 text-gray-500 hover:border-gray-500 hover:bg-gray-800'
                     }`}
-                    aria-label="Show only favorited rocks"
-                    title="Toggle favorites view"
                 >
                     <Heart className={`w-3 h-3 ${showFavorites ? 'fill-amber-400 text-amber-400' : 'text-gray-500'}`} />
                     Favorites
@@ -302,7 +290,7 @@ export const Collection: React.FC<CollectionProps> = ({ rocks, onRockClick, isLo
                        </div>
                     </div>
                     <div>
-                        <h3 className={`text-white font-bold text-sm truncate leading-tight tracking-wide group-hover:text-cyan-400 transition-colors`}>{rock.name}</h3>
+                        <h3 className={`text-white font-bold text-sm truncate leading-tight tracking-wide group-hover:text-cyan-400 transition-colors text-glow`}>{rock.name}</h3>
                         <p className={`text-gray-500 text-[9px] font-mono mt-0.5 uppercase tracking-wider`}>{new Date(rock.dateFound).toLocaleDateString()}</p>
                     </div>
                   </div>

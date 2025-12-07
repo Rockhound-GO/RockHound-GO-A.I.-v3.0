@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { Rock } from '../types';
-import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Cube } from 'lucide-react';
+import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Box as Cube } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { generateRockSpeech } from '../services/geminiService';
 import { decode, decodeAudioData } from '../services/audioUtils';

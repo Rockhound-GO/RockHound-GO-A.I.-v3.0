@@ -1,5 +1,4 @@
 
-
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -40,6 +39,8 @@
         --neon-indigo: #6366f1;
         --neon-cyan: #06b6d4;
         --neon-amber: #f59e0b;
+        --neon-purple: #a855f7;
+        --hologram-grid: rgba(6, 182, 212, 0.1);
       }
       
       html, body, #root {
@@ -64,6 +65,7 @@
           inset: 0;
           background-color: #030712; /* Base dark color */
           overflow: hidden; /* Only hide overflow for the background itself */
+          z-index: -1;
       }
 
       .fluid-bg::before,
@@ -71,60 +73,79 @@
           content: '';
           position: absolute;
           border-radius: 50%;
-          filter: blur(100px); /* Increased blur for more fluid look */
-          opacity: 0.05; /* Even more subtle */
+          filter: blur(80px); /* Tighter blur for more definition */
+          opacity: 0.15; /* Increased opacity for more vibrancy */
           animation-iteration-count: infinite;
           animation-timing-function: ease-in-out;
       }
 
       .fluid-bg::before {
           background: radial-gradient(circle, var(--neon-indigo), transparent 60%);
-          width: 1000px; /* Larger */
-          height: 1000px;
-          top: -40%; /* More off-screen */
-          left: -40%;
-          animation: fluid-move-one 30s infinite alternate; /* Slower */
+          width: 800px;
+          height: 800px;
+          top: -20%;
+          left: -20%;
+          animation: fluid-move-one 20s infinite alternate;
       }
 
       .fluid-bg::after {
           background: radial-gradient(circle, var(--neon-cyan), transparent 60%);
-          width: 900px;
-          height: 900px;
-          bottom: -40%;
-          right: -40%;
-          animation: fluid-move-two 35s infinite alternate-reverse; /* Slower */
+          width: 700px;
+          height: 700px;
+          bottom: -20%;
+          right: -20%;
+          animation: fluid-move-two 25s infinite alternate-reverse;
+      }
+
+      /* Holographic Grid Background */
+      .fluid-bg .grid-overlay {
+        position: absolute;
+        inset: 0;
+        background-image:
+          linear-gradient(var(--hologram-grid) 1px, transparent 1px),
+          linear-gradient(90deg, var(--hologram-grid) 1px, transparent 1px);
+        background-size: 50px 50px;
+        opacity: 0.2;
+        perspective: 500px;
+        transform: perspective(500px) rotateX(60deg) scale(2);
+        animation: grid-move 20s linear infinite;
+        pointer-events: none;
+      }
+
+      @keyframes grid-move {
+        0% { transform: perspective(500px) rotateX(60deg) scale(2) translateY(0); }
+        100% { transform: perspective(500px) rotateX(60deg) scale(2) translateY(50px); }
       }
 
       @keyframes fluid-move-one {
-          0% { transform: translate(0, 0) scale(1); opacity: 0.05; }
-          33% { transform: translate(10%, 15%) scale(1.1); opacity: 0.07; }
-          66% { transform: translate(-10%, -15%) scale(0.9); opacity: 0.03; }
-          100% { transform: translate(0, 0) scale(1); opacity: 0.05; }
+          0% { transform: translate(0, 0) scale(1); opacity: 0.15; }
+          33% { transform: translate(10%, 15%) scale(1.1); opacity: 0.2; }
+          66% { transform: translate(-10%, -15%) scale(0.9); opacity: 0.1; }
+          100% { transform: translate(0, 0) scale(1); opacity: 0.15; }
       }
 
       @keyframes fluid-move-two {
-          0% { transform: translate(0, 0) scale(1); opacity: 0.05; }
-          33% { transform: translate(-15%, -10%) scale(0.95); opacity: 0.03; }
-          66% { transform: translate(15%, 10%) scale(1.15); opacity: 0.08; }
-          100% { transform: translate(0, 0) scale(1); opacity: 0.05; }
+          0% { transform: translate(0, 0) scale(1); opacity: 0.15; }
+          33% { transform: translate(-15%, -10%) scale(0.95); opacity: 0.1; }
+          66% { transform: translate(15%, 10%) scale(1.15); opacity: 0.2; }
+          100% { transform: translate(0, 0) scale(1); opacity: 0.15; }
       }
 
       /* Futuristic Scrollbar */
       ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
+        width: 4px;
+        height: 4px;
       }
       ::-webkit-scrollbar-track {
-        background: rgba(255, 255, 255, 0.03); /* Lighter, more visible track */
-        border-radius: 3px;
+        background: rgba(3, 7, 18, 0.8);
       }
       ::-webkit-scrollbar-thumb {
-        background: rgba(99, 102, 241, 0.5); /* Neon indigo thumb */
-        border-radius: 3px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        background: var(--neon-cyan);
+        border-radius: 2px;
+        box-shadow: 0 0 10px var(--neon-cyan);
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: var(--neon-cyan); /* Cyan on hover */
+        background: var(--neon-indigo);
       }
 
       .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -133,52 +154,84 @@
       .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
       .pt-safe { padding-top: env(safe-area-inset-top); }
 
-      /* Animation Utilities */
+      /* Animation Utilities - 2050 Style */
       .glass-panel {
-        background: var(--glass-bg);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid var(--glass-border);
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        background: rgba(3, 7, 18, 0.7);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border: 1px solid rgba(6, 182, 212, 0.2);
+        box-shadow: 0 0 20px rgba(6, 182, 212, 0.1), inset 0 0 20px rgba(6, 182, 212, 0.05);
       }
       
       .glass-card {
-        background: linear-gradient(145deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.01) 100%);
-        backdrop-filter: blur(10px);
-        border: 1px solid var(--glass-border);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        background: linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        position: relative;
+        overflow: hidden;
+      }
+
+      .glass-card::before {
+        content: '';
+        position: absolute;
+        top: 0; left: -100%;
+        width: 100%; height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+        transition: 0.5s;
+      }
+
+      .glass-card:hover::before {
+        left: 100%;
       }
 
       .glass-card:hover {
-        border-color: rgba(99, 102, 241, 0.3);
-        box-shadow: 0 0 20px rgba(99, 102, 241, 0.1);
-        background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%);
+        border-color: var(--neon-cyan);
+        box-shadow: 0 0 25px rgba(6, 182, 212, 0.3);
+        transform: translateY(-2px) scale(1.01);
       }
 
       .text-glow {
-        text-shadow: 0 0 10px rgba(99, 102, 241, 0.5);
+        text-shadow: 0 0 10px rgba(6, 182, 212, 0.7);
       }
 
-      /* Scanline Effect - now within App.tsx for better layering control */
+      .text-glow-purple {
+        text-shadow: 0 0 10px rgba(168, 85, 247, 0.7);
+      }
+
+      /* Scanline Effect */
       .scanline {
         position: absolute;
         top: 0;
         left: 0;
         width: 100%;
         height: 100%;
-        background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.2) 50%);
-        background-size: 100% 4px;
+        background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.4) 50%);
+        background-size: 100% 3px;
         pointer-events: none;
-        opacity: 0.1;
+        opacity: 0.15;
+        z-index: 9999;
+        mix-blend-mode: overlay;
+      }
+
+      /* CRT flicker */
+      .crt-flicker {
+        animation: flicker 0.15s infinite;
+        opacity: 0.95;
+      }
+
+      @keyframes flicker {
+        0% { opacity: 0.95; }
+        50% { opacity: 0.92; }
+        100% { opacity: 0.95; }
       }
 
       /* Global app container for full bleed and positioning */
       #root {
         position: relative;
-        /* #root should not have a z-index, let App.tsx control the main app z-index */
       }
 
-      /* New animations for Scanner component feedback */
+      /* Animations */
       @keyframes spin-slow {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
@@ -189,95 +242,86 @@
       }
       @keyframes pulse-fast {
           0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
+          50% { opacity: 0.5; }
       }
       @keyframes radial-pulse {
-          0%, 100% { transform: scale(0.8); opacity: 0.6; }
-          50% { transform: scale(1.1); opacity: 1; }
+          0% { box-shadow: 0 0 0 0px rgba(6, 182, 212, 0.4); }
+          100% { box-shadow: 0 0 0 20px rgba(6, 182, 212, 0); }
       }
       @keyframes scan-grid {
         0% { background-position: 0 0; }
         100% { background-position: 0 100%; }
       }
-      @keyframes scan { /* For the moving scan line */
-        0% { top: 0% } 
-        100% { top: 100% } 
+      @keyframes scan {
+        0% { top: -10%; opacity: 0; }
+        10% { opacity: 1; }
+        90% { opacity: 1; }
+        100% { top: 110%; opacity: 0; }
       }
       
-      .animate-spin-slow { animation: spin-slow 5s linear infinite; }
-      .animate-spin-reverse { animation: spin-reverse 3s linear infinite reverse; }
-      .animate-pulse-fast { animation: pulse-fast 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
-      .animate-radial-pulse { animation: radial-pulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+      .animate-spin-slow { animation: spin-slow 8s linear infinite; }
+      .animate-spin-reverse { animation: spin-reverse 5s linear infinite reverse; }
+      .animate-pulse-fast { animation: pulse-fast 1s ease-in-out infinite; }
+      .animate-radial-pulse { animation: radial-pulse 2s infinite; }
       .animate-scan-grid { animation: scan-grid 3s linear infinite; }
-      .animate-scan-line { animation: scan 2s linear infinite; }
+      .animate-scan-line { animation: scan 3s linear infinite; }
 
-
-      /* Parallax effect for Collection images */
-      .parallax-bg {
+      /* Holographic Glitch Text */
+      .glitch {
+        position: relative;
+        color: white;
+      }
+      .glitch::before, .glitch::after {
+        content: attr(data-text);
         position: absolute;
-        inset: -10px; /* Slightly larger than parent to allow movement */
-        object-fit: cover;
-        transition: transform 0.1s ease-out; /* Smooth movement */
-        will-change: transform; /* Optimize for animation */
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
       }
-      
-      /* Clover Overlay Animations */
-      @keyframes idle {
-        0%, 100% {
-          transform: translateY(0) rotateZ(0deg) scale(1);
-        }
-        25% {
-          transform: translateY(-0.05%) rotateZ(0.02deg) scale(1.0005);
-        }
-        50% {
-          transform: translateY(0%) rotateZ(0deg) scale(1.001);
-        }
-        75% {
-          transform: translateY(-0.05%) rotateZ(-0.02deg) scale(1.0005);
-        }
+      .glitch::before {
+        left: 2px;
+        text-shadow: -1px 0 #ff00c1;
+        clip: rect(44px, 450px, 56px, 0);
+        animation: glitch-anim 5s infinite linear alternate-reverse;
       }
-
-      @keyframes converse-nod {
-        0%, 100% {
-          transform: translateY(0) rotateX(0deg);
-        }
-        30% {
-          transform: translateY(-0.5%) rotateX(0.5deg);
-        }
-        60% {
-          transform: translateY(0.5%) rotateX(-0.5deg);
-        }
+      .glitch::after {
+        left: -2px;
+        text-shadow: -1px 0 #00fff9;
+        clip: rect(44px, 450px, 56px, 0);
+        animation: glitch-anim 5s infinite linear alternate-reverse;
       }
-
-      .animate-idle {
-        animation: idle 12s ease-in-out infinite;
-      }
-
-      .animate-converse-nod {
-          animation: converse-nod 3s ease-in-out infinite;
+      @keyframes glitch-anim {
+        0% { clip: rect(12px, 9999px, 81px, 0); }
+        5% { clip: rect(94px, 9999px, 31px, 0); }
+        10% { clip: rect(32px, 9999px, 5px, 0); }
+        15% { clip: rect(54px, 9999px, 24px, 0); }
+        20% { clip: rect(12px, 9999px, 9px, 0); }
+        25% { clip: rect(87px, 9999px, 95px, 0); }
+        30% { clip: rect(45px, 9999px, 21px, 0); }
+        35% { clip: rect(3px, 9999px, 96px, 0); }
+        40% { clip: rect(65px, 9999px, 32px, 0); }
+        45% { clip: rect(21px, 9999px, 87px, 0); }
+        50% { clip: rect(98px, 9999px, 4px, 0); }
+        55% { clip: rect(43px, 9999px, 65px, 0); }
+        60% { clip: rect(1px, 9999px, 32px, 0); }
+        65% { clip: rect(76px, 9999px, 9px, 0); }
+        70% { clip: rect(32px, 9999px, 54px, 0); }
+        75% { clip: rect(54px, 9999px, 21px, 0); }
+        80% { clip: rect(9px, 9999px, 98px, 0); }
+        85% { clip: rect(32px, 9999px, 4px, 0); }
+        90% { clip: rect(65px, 9999px, 87px, 0); }
+        95% { clip: rect(21px, 9999px, 54px, 0); }
+        100% { clip: rect(43px, 9999px, 21px, 0); }
       }
 
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
-    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.6.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
-    "@react-three/fiber": "https://unpkg.com/@react-three/fiber@8.16.8/dist/react-three-fiber.mjs",
-    "@react-three/drei": "https://unpkg.com/@react-three/drei@9.106.0/dist/react-three-drei.mjs",
-    "three/": "https://aistudiocdn.com/three@^0.181.2/"
-  }
-}
-</script>
 </head>
   <body>
-    <div id="fluid-background-container" class="fluid-bg"></div>
+    <div id="fluid-background-container" class="fluid-bg">
+      <div class="grid-overlay"></div>
+    </div>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>
