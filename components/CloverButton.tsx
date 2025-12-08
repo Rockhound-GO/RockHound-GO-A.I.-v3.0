@@ -68,7 +68,7 @@ export const CloverButton: React.FC<CloverButtonProps> = ({ onClick }) => {
 
   // Floating Animation State
   const timeRef = useRef(0);
-  const requestRef = useRef<number>();
+  const requestRef = useRef<number | undefined>(undefined);
 
   const animate = (time: number) => {
     if (!isDragging && !isHovered) {
@@ -81,7 +81,9 @@ export const CloverButton: React.FC<CloverButtonProps> = ({ onClick }) => {
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(requestRef.current!);
+    return () => {
+      if (requestRef.current) cancelAnimationFrame(requestRef.current);
+    };
   }, [isDragging, isHovered]);
 
   const handleStart = (clientX: number, clientY: number) => {

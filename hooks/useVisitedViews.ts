@@ -55,7 +55,7 @@ export const useVisitedViews = () => {
   const markViewVisited = useCallback((view: string) => {
     setVisitedViews(prev => {
       if (!prev.has(view)) {
-        const newSet = new Set(prev);
+        const newSet = new Set<string>(prev);
         newSet.add(view);
         
         // "Secure" Save - Encode to Base64 to look cool in Application tab

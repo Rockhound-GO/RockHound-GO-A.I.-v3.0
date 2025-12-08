@@ -1,373 +1,276 @@
-import React, { useState, useRef, useEffect, lazy, Suspense, useCallback } from 'react';
-import { Rock } from '../types';
-import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Cube, Activity, ScanLine, FileWarning } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Camera, Upload, RotateCcw, X, ScanLine, Loader2, Zap, Sun, Ruler, Focus, Crosshair } from 'lucide-react';
+import Webcam from 'react-webcam';
 import toast from 'react-hot-toast';
-import { generateRockSpeech } from '../services/geminiService';
-import { decode, decodeAudioData } from '../services/audioUtils';
+import { identifyRock, generateReferenceImage } from '../services/geminiService';
+import { Rock, RockType } from '../types';
 
-// Lazy load the 3D viewer component
-const Rock3DViewer = lazy(() => import('./Rock3DModel').then(module => ({ default: module.Rock3DViewer })));
-
-// -- AUDIO ENGINE (Local FX) --
-const useDetailSound = () => {
-  const audioCtx = useRef<AudioContext | null>(null);
-
-  const playSound = useCallback((type: 'hover' | 'click' | 'purge' | 'scan') => {
-    if (!audioCtx.current) {
-      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    const ctx = audioCtx.current;
-    if (ctx.state === 'suspended') ctx.resume();
-
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
-
-    const now = ctx.currentTime;
-
-    switch (type) {
-        case 'hover':
-            osc.type = 'sine';
-            osc.frequency.setValueAtTime(400, now);
-            osc.frequency.exponentialRampToValueAtTime(600, now + 0.05);
-            gain.gain.setValueAtTime(0.02, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-            osc.start(now);
-            osc.stop(now + 0.05);
-            break;
-        case 'click':
-            osc.type = 'square';
-            osc.frequency.setValueAtTime(300, now);
-            gain.gain.setValueAtTime(0.05, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-            osc.start(now);
-            osc.stop(now + 0.1);
-            break;
-        case 'scan':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(100, now);
-            osc.frequency.linearRampToValueAtTime(800, now + 0.5);
-            gain.gain.setValueAtTime(0.02, now);
-            gain.gain.linearRampToValueAtTime(0, now + 0.5);
-            osc.start(now);
-            osc.stop(now + 0.5);
-            break;
-        case 'purge':
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(100, now);
-            osc.frequency.linearRampToValueAtTime(50, now + 0.5);
-            gain.gain.setValueAtTime(0.1, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-            osc.start(now);
-            osc.stop(now + 0.5);
-            break;
-    }
-  }, []);
-
-  return playSound;
-};
-
-interface RockDetailsProps {
-  rock: Rock;
-  onBack: () => void;
-  onDelete: (id: string) => void;
+interface ScannerProps {
+  onRockDetected: (rock: Rock) => void;
 }
 
-const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-
-export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
-  const [audioAmplitude, setAudioAmplitude] = useState(0); // For Visualizer
+export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
   
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const audioBufferRef = useRef<AudioBuffer | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  // AR Simulation State
+  const [lightingStatus, setLightingStatus] = useState<'LOW' | 'OPTIMAL' | 'HIGH'>('LOW');
+  const [range, setRange] = useState(0.0);
+  const [isFocused, setIsFocused] = useState(false);
   
-  const playSound = useDetailSound();
+  const webcamRef = useRef<Webcam>(null);
 
-  // Placeholder for a 3D model URL.
-  const threeDModelUrl = 'https://aistudiocdn.com/assets/rock.glb';
-
-  const stopAudio = () => {
-    if (audioSourceRef.current) {
-      audioSourceRef.current.stop();
-      audioSourceRef.current.disconnect();
-      audioSourceRef.current = null;
-    }
-    if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-    }
-    setIsPlaying(false);
-    setAudioAmplitude(0);
-  };
-
-  const handlePlayAudio = async () => {
-    playSound('click');
-    if (isPlaying) {
-      stopAudio();
-      return;
-    }
-    if (audioBufferRef.current) {
-      playBuffer(audioBufferRef.current);
-      return;
-    }
-    setIsGeneratingAudio(true);
-    try {
-      const result = await generateRockSpeech(`This is ${rock.name}. ${rock.description}`);
-      const audioBytes = decode(result.audioData);
-      const buffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
-      audioBufferRef.current = buffer;
-      playBuffer(buffer);
-    } catch (error) {
-      toast.error("Audio unavailable");
-    } finally {
-      setIsGeneratingAudio(false);
-    }
-  };
-
-  const playBuffer = (buffer: AudioBuffer) => {
-    if (audioContext.state === 'suspended') audioContext.resume();
-    
-    const source = audioContext.createBufferSource();
-    source.buffer = buffer;
-    
-    // Analyzer for visualizer
-    const analyser = audioContext.createAnalyser();
-    analyser.fftSize = 64;
-    analyserRef.current = analyser;
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-    source.connect(analyser);
-    analyser.connect(audioContext.destination);
-    
-    source.onended = () => {
-        setIsPlaying(false);
-        setAudioAmplitude(0);
-        cancelAnimationFrame(animationFrameRef.current!);
-    };
-    
-    source.start();
-    audioSourceRef.current = source;
-    setIsPlaying(true);
-
-    const animate = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
-        // Calculate average volume for single bar visualizer effect
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-        setAudioAmplitude(average);
-        animationFrameRef.current = requestAnimationFrame(animate);
-    };
-    animate();
-  };
-
+  // -- SENSOR SIMULATION ENGINE --
   useEffect(() => {
-      playSound('scan'); // Play scan sound on mount
-      return () => stopAudio();
-  }, []);
+    if (imgSrc) return; // Stop simulation if image captured
+
+    // Simulate Range Finder (fluctuating distance)
+    const rangeInterval = setInterval(() => {
+      setRange(prev => {
+        const drift = (Math.random() - 0.5) * 0.05;
+        const newRange = Math.max(0.15, Math.min(0.8, 0.4 + drift)); // Hover around 0.4m
+        return parseFloat(newRange.toFixed(2));
+      });
+    }, 200);
+
+    // Simulate Lighting & Focus lock sequence
+    const lockTimer = setTimeout(() => {
+        setLightingStatus('OPTIMAL');
+        // Slight delay for focus lock
+        setTimeout(() => setIsFocused(true), 1500);
+    }, 2000);
+
+    return () => {
+        clearInterval(rangeInterval);
+        clearTimeout(lockTimer);
+    };
+  }, [imgSrc]);
+
+  const capture = useCallback(() => {
+    if (webcamRef.current) {
+      const imageSrc = webcamRef.current.getScreenshot();
+      setImgSrc(imageSrc);
+    }
+  }, [webcamRef]);
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImgSrc(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleScan = async () => {
+    if (!imgSrc) return;
+    setIsScanning(true);
+    try {
+      const analysis = await identifyRock(imgSrc);
+      
+      const rockData: Rock = {
+        ...analysis,
+        id: crypto.randomUUID(),
+        userId: 'temp', 
+        dateFound: Date.now(),
+        imageUrl: imgSrc,
+        status: 'approved',
+        comparisonImageUrl: await generateReferenceImage(imgSrc, analysis.name),
+      };
+
+      onRockDetected(rockData);
+    } catch (error) {
+      console.error(error);
+      toast.error('Identification failed. Try a clearer image.');
+      setIsScanning(false);
+    }
+  };
+
+  const reset = () => {
+    setImgSrc(null);
+    setIsScanning(false);
+    setIsFocused(false);
+    setLightingStatus('LOW');
+  };
+
+  // Dynamic Styles based on Lock Status
+  const hudColor = isFocused ? 'text-emerald-400 border-emerald-400/50' : 'text-cyan-400 border-cyan-400/50';
+  const hudShadow = isFocused ? 'shadow-[0_0_20px_#10b981]' : 'shadow-[0_0_20px_#22d3ee]';
 
   return (
-    <div className="h-full flex flex-col bg-[#050a10] overflow-y-auto no-scrollbar font-sans relative">
-      <style>{`
-        @keyframes scan-sweep { 0% { top: -10%; opacity: 0; } 50% { opacity: 1; } 100% { top: 110%; opacity: 0; } }
-        .tech-border { clip-path: polygon(0 0, 100% 0, 100% 85%, 95% 100%, 0 100%); }
-      `}</style>
+    <div className="h-full flex flex-col bg-black relative overflow-hidden font-mono">
+      {/* Viewfinder Layer */}
+      <div className="flex-1 relative overflow-hidden">
+        {!imgSrc ? (
+          <Webcam
+            audio={false}
+            ref={webcamRef}
+            screenshotFormat="image/jpeg"
+            videoConstraints={{ facingMode }}
+            className="w-full h-full object-cover opacity-80"
+          />
+        ) : (
+          <img src={imgSrc} alt="Captured" className="w-full h-full object-cover" />
+        )}
 
-      {/* --- IMMERSIVE HEADER --- */}
-      <div className="relative h-[55vh] flex-none overflow-hidden group">
-         <div className="absolute inset-0 bg-black z-0" />
-         
-         <img src={rock.imageUrl} className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-700" />
-         
-         {/* Scanning Overlay */}
-         <div className="absolute inset-0 bg-[linear-gradient(to_bottom,transparent_50%,rgba(0,255,255,0.1)_50%)] bg-[length:100%_4px] pointer-events-none" />
-         <div className="absolute inset-0 bg-gradient-to-t from-[#050a10] via-[#050a10]/40 to-transparent" />
-         <div className="absolute top-0 left-0 right-0 h-1 bg-cyan-500/50 shadow-[0_0_20px_#06b6d4] animate-[scan-sweep_4s_linear_infinite]" />
+        {/* --- AR HUD OVERLAY --- */}
+        {!imgSrc && (
+          <div className="absolute inset-0 pointer-events-none">
+             
+             {/* 1. Holographic Grid Floor */}
+             <div className="absolute inset-0 bg-[linear-gradient(transparent_50%,rgba(6,182,212,0.1)_50%)] bg-[size:100%_40px] [perspective:1000px] [transform:rotateX(60deg)_translateY(-100px)] opacity-30" />
+             
+             {/* 2. Top Status Bar */}
+             <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent">
+                 <div className="space-y-1">
+                     <div className={`flex items-center gap-2 text-[10px] font-bold tracking-widest ${isFocused ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                         <Focus size={12} className={isFocused ? '' : 'animate-spin-slow'} />
+                         {isFocused ? 'TARGET_LOCKED' : 'ACQUIRING_TARGET...'}
+                     </div>
+                     <div className="flex gap-0.5">
+                         {[1,2,3,4,5].map(i => (
+                             <div key={i} className={`h-1 w-4 rounded-sm transition-colors ${i < 4 ? (isFocused ? 'bg-emerald-500' : 'bg-cyan-500') : 'bg-gray-700'}`} />
+                         ))}
+                     </div>
+                 </div>
+                 <div className="text-right">
+                     <div className="text-[10px] text-gray-400 uppercase">SYS_TIME</div>
+                     <div className="text-xs font-bold text-white">{new Date().toLocaleTimeString([], {hour12: false})}</div>
+                 </div>
+             </div>
 
-         {/* Navigation */}
-         <button 
-            onClick={() => { playSound('click'); onBack(); }} 
-            className="absolute top-safe mt-6 left-6 p-3 rounded-full bg-black/40 border border-white/10 backdrop-blur-md hover:bg-white/10 hover:border-white/30 transition-all z-20 group/back"
-         >
-            <ArrowLeft className="w-5 h-5 text-white group-hover/back:-translate-x-1 transition-transform" />
-         </button>
+             {/* 3. Central Reticle */}
+             <div className="absolute inset-0 flex items-center justify-center">
+               <div className={`relative w-64 h-64 border-2 rounded-2xl transition-all duration-500 ${hudColor} ${hudShadow} flex items-center justify-center`}>
+                  
+                  {/* Corner Brackets */}
+                  <div className={`absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 -mt-1 -ml-1 transition-colors ${hudColor}`} />
+                  <div className={`absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 -mt-1 -mr-1 transition-colors ${hudColor}`} />
+                  <div className={`absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 -mb-1 -ml-1 transition-colors ${hudColor}`} />
+                  <div className={`absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 -mb-1 -mr-1 transition-colors ${hudColor}`} />
 
-         {/* Title Block */}
-         <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
-            <div className="flex items-end justify-between">
-                <div>
-                    <div className="flex items-center gap-2 mb-3">
-                        <span className="px-2 py-0.5 border border-cyan-500/30 bg-cyan-900/30 text-cyan-400 text-[9px] font-bold uppercase tracking-[0.2em] rounded backdrop-blur-sm shadow-[0_0_10px_rgba(6,182,212,0.2)]">
-                            {rock.type} CLASS
-                        </span>
-                        {rock.location && (
-                            <span className="text-[9px] text-gray-400 font-mono flex items-center gap-1 uppercase tracking-wide bg-black/40 px-2 py-0.5 rounded backdrop-blur-sm border border-white/5">
-                                <MapPin className="w-3 h-3 text-red-400" /> {rock.location.lat.toFixed(4)}, {rock.location.lng.toFixed(4)}
-                            </span>
-                        )}
-                    </div>
-                    <h1 className="text-5xl font-bold text-white tracking-tighter mb-1 drop-shadow-2xl font-sans bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-500">
-                        {rock.name.toUpperCase()}
-                    </h1>
-                    <p className="text-sm text-cyan-500/80 font-mono tracking-widest uppercase flex items-center gap-2">
-                        <Activity className="w-3 h-3" /> {rock.scientificName || "UNKNOWN_DESIGNATION"}
-                    </p>
-                </div>
+                  {/* Center Crosshair */}
+                  <div className={`absolute w-4 h-4 border border-current rounded-full flex items-center justify-center opacity-80`}>
+                      <div className="w-0.5 h-full bg-current" />
+                      <div className="h-0.5 w-full bg-current absolute" />
+                  </div>
 
-                {/* Audio FAB */}
+                  {/* Dynamic Scanning Line */}
+                  <div className="absolute inset-0 border-t border-cyan-500/50 opacity-50 animate-[scan-vertical_2s_ease-in-out_infinite]" />
+                  
+                  {/* Framing Hint */}
+                  {!isFocused && (
+                      <div className="absolute -bottom-8 text-[10px] font-bold text-white bg-black/50 px-3 py-1 rounded backdrop-blur border border-white/10 animate-pulse">
+                          ALIGN SPECIMEN IN CENTER
+                      </div>
+                  )}
+               </div>
+             </div>
+
+             {/* 4. Side Metrics (Lighting & Range) */}
+             <div className="absolute right-4 top-1/2 -translate-y-1/2 space-y-6">
+                 
+                 {/* Lighting Meter */}
+                 <div className="bg-black/40 backdrop-blur p-2 rounded-lg border border-white/10 flex flex-col items-center gap-2">
+                     <Sun size={16} className={lightingStatus === 'OPTIMAL' ? 'text-yellow-400' : 'text-gray-500'} />
+                     <div className="h-24 w-1.5 bg-gray-800 rounded-full relative overflow-hidden">
+                         <div 
+                            className={`absolute bottom-0 left-0 right-0 transition-all duration-1000 ${lightingStatus === 'OPTIMAL' ? 'bg-yellow-400 h-[80%]' : 'bg-red-500 h-[30%]'}`} 
+                         />
+                     </div>
+                     <span className="text-[8px] text-gray-400 font-bold uppercase rotate-90 mt-2">LUMENS</span>
+                 </div>
+
+                 {/* Range Finder */}
+                 <div className="bg-black/40 backdrop-blur p-2 rounded-lg border border-white/10 flex flex-col items-center gap-2">
+                     <Ruler size={16} className="text-cyan-400" />
+                     <div className="text-[9px] font-bold text-white font-mono vertical-rl">
+                         {range.toFixed(2)}M
+                     </div>
+                 </div>
+             </div>
+
+             {/* 5. Bottom Instructions */}
+             <div className="absolute bottom-32 left-0 right-0 text-center">
+                 <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border bg-black/60 backdrop-blur transition-colors ${lightingStatus === 'LOW' ? 'border-red-500/50 text-red-400' : 'border-emerald-500/50 text-emerald-400'}`}>
+                     {lightingStatus === 'LOW' ? (
+                         <>
+                             <Zap size={14} /> <span>INCREASE LIGHTING</span>
+                         </>
+                     ) : (
+                         <>
+                             <ScanLine size={14} /> <span>CONDITIONS OPTIMAL</span>
+                         </>
+                     )}
+                 </div>
+             </div>
+
+          </div>
+        )}
+      </div>
+
+      {/* Control Deck */}
+      <div className="flex-none bg-[#050a10]/95 backdrop-blur border-t border-white/10 pb-safe z-20">
+        {!imgSrc ? (
+            <div className="flex justify-between items-center px-8 py-6 max-w-md mx-auto">
+                <label className="p-4 rounded-full bg-white/5 border border-white/10 text-white hover:bg-white/10 hover:scale-105 transition-all cursor-pointer group">
+                    <Upload className="w-6 h-6 group-hover:text-cyan-400" />
+                    <input type="file" accept="image/*" className="hidden" onChange={handleFileUpload} />
+                </label>
+
+                {/* Shutter Button */}
                 <button 
-                    onClick={handlePlayAudio}
-                    className={`relative w-16 h-16 rounded-2xl flex items-center justify-center backdrop-blur-xl border transition-all duration-300 shadow-[0_0_30px_rgba(0,0,0,0.5)] group ${isPlaying ? 'bg-indigo-600 border-indigo-400' : 'bg-black/40 border-white/20 hover:bg-white/10'}`}
+                    onClick={capture}
+                    className="relative group"
                 >
-                    {/* Visualizer Ring */}
-                    {isPlaying && (
-                        <div className="absolute inset-0 rounded-2xl border-2 border-indigo-400/50 animate-ping" />
-                    )}
-                    
-                    {isGeneratingAudio ? (
-                        <Loader2 className="w-6 h-6 text-white animate-spin" />
-                    ) : isPlaying ? (
-                        <PauseCircle className="w-8 h-8 text-white" />
+                    <div className={`absolute inset-0 bg-cyan-500 rounded-full blur-md opacity-20 group-hover:opacity-40 transition-opacity ${isFocused ? 'animate-pulse' : ''}`} />
+                    <div className={`w-20 h-20 rounded-full border-4 ${isFocused ? 'border-emerald-400' : 'border-white/30'} flex items-center justify-center relative transition-colors duration-300`}>
+                        <div className={`w-16 h-16 rounded-full transition-all duration-200 ${isFocused ? 'bg-white scale-90' : 'bg-white/90 scale-100 group-hover:scale-95'}`} />
+                    </div>
+                </button>
+
+                <button 
+                    onClick={() => setFacingMode(prev => prev === 'user' ? 'environment' : 'user')}
+                    className="p-4 rounded-full bg-white/5 border border-white/10 text-white hover:bg-white/10 hover:scale-105 transition-all group"
+                >
+                    <RotateCcw className="w-6 h-6 group-hover:text-cyan-400" />
+                </button>
+            </div>
+        ) : (
+            <div className="flex gap-4 px-6 py-6 max-w-md mx-auto">
+                <button 
+                    onClick={reset}
+                    className="flex-1 py-4 bg-gray-800/80 rounded-xl text-white font-bold uppercase tracking-widest border border-white/10 hover:bg-gray-700 transition-colors"
+                >
+                    Retake
+                </button>
+                <button 
+                    onClick={handleScan}
+                    disabled={isScanning}
+                    className="flex-[2] py-4 bg-cyan-600 hover:bg-cyan-500 rounded-xl text-white font-bold uppercase tracking-widest shadow-[0_0_20px_rgba(6,182,212,0.4)] transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                    {isScanning ? (
+                        <>
+                            <Loader2 className="w-5 h-5 animate-spin" /> Analyzing...
+                        </>
                     ) : (
-                        <Volume2 className="w-8 h-8 text-white group-hover:scale-110 transition-transform" />
+                        <>
+                            <ScanLine className="w-5 h-5" /> Identify
+                        </>
                     )}
                 </button>
             </div>
-         </div>
+        )}
       </div>
 
-      {/* --- ANALYSIS CONTENT --- */}
-      <div className="p-6 space-y-8 relative z-10 -mt-6">
-         
-         {/* Description Console */}
-         <div className="bg-[#0a0f18]/90 backdrop-blur-xl p-6 rounded-2xl border border-white/10 shadow-2xl relative overflow-hidden group">
-             <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 via-purple-500 to-indigo-500" />
-             <div className="absolute -right-10 -top-10 text-white/5 rotate-12 group-hover:rotate-0 transition-transform duration-700">
-                 <Hexagon size={120} />
-             </div>
-             
-             <div className="relative z-10">
-                 <h3 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <ScanLine size={12} /> Analysis Log
-                 </h3>
-                 <p className="text-gray-300 text-sm leading-relaxed font-light">
-                    {rock.description}
-                 </p>
-             </div>
-         </div>
-
-         {/* Stat Modules */}
-         <div className="grid grid-cols-2 gap-4">
-            <div 
-                onMouseEnter={() => playSound('hover')}
-                className="bg-black/40 backdrop-blur border border-white/10 p-4 rounded-xl relative overflow-hidden group hover:border-indigo-500/50 transition-colors"
-            >
-               <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-               <div className="relative z-10">
-                   <div className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mb-1">Rarity Index</div>
-                   <div className="flex items-end gap-2 mb-3">
-                       <div className="text-3xl font-bold text-white">{rock.rarityScore}</div>
-                       <div className="text-xs text-gray-500 mb-1">/100</div>
-                   </div>
-                   {/* Animated Bar */}
-                   <div className="h-1.5 bg-gray-800 w-full rounded-full overflow-hidden">
-                      <div className="h-full bg-indigo-500 shadow-[0_0_10px_#6366f1] transition-all duration-1000" style={{ width: `${rock.rarityScore}%` }} />
-                   </div>
-               </div>
-            </div>
-
-            <div 
-                onMouseEnter={() => playSound('hover')}
-                className="bg-black/40 backdrop-blur border border-white/10 p-4 rounded-xl relative overflow-hidden group hover:border-cyan-500/50 transition-colors"
-            >
-               <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-               <div className="relative z-10">
-                   <div className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mb-1">Hardness</div>
-                   <div className="flex items-end gap-2 mb-3">
-                       <div className="text-3xl font-bold text-white">{rock.hardness}</div>
-                       <div className="text-xs text-gray-500 mb-1">/10</div>
-                   </div>
-                   <div className="h-1.5 bg-gray-800 w-full rounded-full overflow-hidden">
-                      <div className="h-full bg-cyan-500 shadow-[0_0_10px_#06b6d4] transition-all duration-1000" style={{ width: `${rock.hardness * 10}%` }} />
-                   </div>
-               </div>
-            </div>
-         </div>
-
-         {/* 3D Model Viewer Container */}
-         <div className="space-y-3">
-            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                <Cube className="w-3 h-3 text-cyan-400" /> Digital Specimen
-            </h3>
-            <div className="w-full h-72 rounded-2xl overflow-hidden border border-white/10 relative bg-[#080c14] shadow-inner">
-                {/* HUD Corners */}
-                <div className="absolute top-2 left-2 w-4 h-4 border-t border-l border-white/20 rounded-tl" />
-                <div className="absolute top-2 right-2 w-4 h-4 border-t border-r border-white/20 rounded-tr" />
-                <div className="absolute bottom-2 left-2 w-4 h-4 border-b border-l border-white/20 rounded-bl" />
-                <div className="absolute bottom-2 right-2 w-4 h-4 border-b border-r border-white/20 rounded-br" />
-                
-                <Suspense fallback={
-                    <div className="flex flex-col items-center justify-center w-full h-full text-cyan-400">
-                        <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                        <span className="text-xs font-mono uppercase tracking-wider animate-pulse">Constructing Voxel Matrix...</span>
-                    </div>
-                }>
-                    <Rock3DViewer modelUrl={threeDModelUrl} />
-                </Suspense>
-            </div>
-            <p className="text-[9px] text-gray-600 text-center uppercase tracking-wide font-mono">
-              // CAUTION: Model represents generic class data.
-            </p>
-         </div>
-
-         {rock.comparisonImageUrl && (
-            <div className="space-y-3">
-                <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">Reference Data</h3>
-                <div className="w-full h-48 rounded-2xl overflow-hidden border border-white/10 relative group">
-                    <img src={rock.comparisonImageUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-500 scale-105" />
-                    <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-transparent to-transparent pointer-events-none" />
-                    <div className="absolute top-4 left-4">
-                        <span className="flex items-center gap-2 text-[9px] font-mono text-indigo-300 tracking-wider bg-black/60 px-2 py-1 rounded border border-indigo-500/30">
-                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" /> IDEAL_SPECIMEN
-                        </span>
-                    </div>
-                </div>
-            </div>
-         )}
-         
-         <div className="bg-[#0a0f18] p-5 rounded-xl border border-amber-500/20 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-                <Quote size={48} className="text-amber-500" />
-            </div>
-            <div className="flex items-center gap-2 mb-2 text-amber-500/80 relative z-10">
-                <Quote className="w-4 h-4" />
-                <h3 className="text-[10px] font-bold uppercase tracking-widest">Field Note</h3>
-            </div>
-            <p className="text-gray-400 text-xs italic pl-6 border-l border-amber-500/30 relative z-10">"{rock.funFact}"</p>
-         </div>
-
-         {/* Action Footer */}
-         <div className="flex gap-4 pt-6 border-t border-white/5 pb-24">
-            <button 
-                onClick={() => { playSound('click'); navigator.share?.({ title: rock.name, text: rock.description }); }} 
-                className="flex-1 py-4 bg-gray-900 hover:bg-gray-800 border border-gray-700 hover:border-cyan-500/50 text-white rounded-xl font-mono text-xs uppercase transition-all flex items-center justify-center gap-2 tracking-wider group"
-            >
-                <Share2 className="w-4 h-4 text-cyan-500 group-hover:animate-bounce" /> Encrypt & Share
-            </button>
-            <button 
-                onClick={() => { playSound('purge'); onDelete(rock.id); }} 
-                className="flex-1 py-4 border border-red-900/50 text-red-400 hover:bg-red-900/10 hover:border-red-500/50 hover:text-red-300 rounded-xl font-mono text-xs uppercase transition-all flex items-center justify-center gap-2 tracking-wider group"
-            >
-                <FileWarning className="w-4 h-4 group-hover:animate-pulse" /> Purge Asset
-            </button>
-         </div>
-      </div>
+      <style>{`
+        @keyframes scan-vertical { 0% { top: 0%; opacity: 0; } 50% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+        .vertical-rl { writing-mode: vertical-rl; text-orientation: mixed; }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+      `}</style>
     </div>
   );
 };

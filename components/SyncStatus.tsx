@@ -174,7 +174,7 @@ export const SyncStatus: React.FC<SyncStatusProps> = ({ isSyncing }) => {
 
 // Hook for previous value
 function usePrevious<T>(value: T): T | undefined {
-  const ref = React.useRef<T>();
+  const ref = React.useRef<T | undefined>(undefined);
   React.useEffect(() => { ref.current = value; });
   return ref.current;
 }

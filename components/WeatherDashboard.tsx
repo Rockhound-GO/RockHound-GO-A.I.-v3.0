@@ -20,13 +20,13 @@ const useWeatherSound = () => {
     const bufferSize = 2 * ctx.sampleRate;
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const output = buffer.getChannelData(0);
+    let lastOut = 0;
     for (let i = 0; i < bufferSize; i++) {
         const white = Math.random() * 2 - 1;
         output[i] = (lastOut + (0.02 * white)) / 1.02;
         lastOut = output[i];
         output[i] *= 3.5; 
     }
-    let lastOut = 0;
 
     const noise = ctx.createBufferSource();
     noise.buffer = buffer;

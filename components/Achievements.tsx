@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useCallback } from 'react';
 import { Rock, RockType, Achievement } from '../types';
 import { User } from '../services/api';
-import { Gem, Compass, Sprout, BarChart2, Microscope, Shield, Star, Award, Mountain, Crown, Lock, Trophy, Zap, Scan, Hexagon } from 'lucide-react';
+import { Gem, Compass, Sprout, BarChart2, Microscope, Shield, Star, Award, Mountain, Crown, Lock, Unlock, Trophy, Zap, Scan, Hexagon } from 'lucide-react';
 
 // -- AUDIO ENGINE (Local) --
 const useHoverSound = () => {
@@ -67,7 +67,7 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
     id: 'geologist_1',
     title: 'Geologist in Training',
     description: 'Reach Level 5.',
-    icon: BarChart3,
+    icon: BarChart2,
     xpReward: 250,
     goal: 5,
     progress: (user) => user.level,
@@ -314,4 +314,12 @@ const AchievementCard: React.FC<{ achievement: any; onHover: () => void }> = ({ 
                             </div>
                         </div>
                         
-                        <div className="text-[9px] text-
+                        <div className="text-[9px] text-gray-600 text-right">
+                            {achievement.currentProgress} / {achievement.goal}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};

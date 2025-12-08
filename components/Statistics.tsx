@@ -198,7 +198,7 @@ export const Statistics: React.FC<StatisticsProps> = ({ rocks }) => {
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
-                                activeIndex={activeIndex}
+                                {...{ activeIndex } as any}
                                 activeShape={renderActiveShape}
                                 data={typeData}
                                 cx="50%"

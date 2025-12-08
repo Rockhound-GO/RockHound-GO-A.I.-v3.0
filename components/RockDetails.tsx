@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, lazy, Suspense, useCallback } from 'react';
 import { Rock } from '../types';
-import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Cube, Activity, ScanLine, FileWarning } from 'lucide-react';
+import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Box, Activity, ScanLine, FileWarning } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { generateRockSpeech } from '../services/geminiService';
 import { decode, decodeAudioData } from '../services/audioUtils';
@@ -14,9 +14,13 @@ const useDetailSound = () => {
 
   const playSound = useCallback((type: 'hover' | 'click' | 'purge' | 'scan') => {
     if (!audioCtx.current) {
-      audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioCtx.current = new AudioContextClass();
+      }
     }
     const ctx = audioCtx.current;
+    if (!ctx) return;
     if (ctx.state === 'suspended') ctx.resume();
 
     const osc = ctx.createOscillator();
@@ -77,12 +81,13 @@ interface RockDetailsProps {
   onDelete: (id: string) => void;
 }
 
-const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-
 export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioAmplitude, setAudioAmplitude] = useState(0); // For Visualizer
+  
+  // Safe Audio Context Init
+  const audioContextRef = useRef<AudioContext | null>(null);
   
   const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const audioBufferRef = useRef<AudioBuffer | null>(null);
@@ -93,6 +98,16 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
 
   // Placeholder for a 3D model URL.
   const threeDModelUrl = 'https://aistudiocdn.com/assets/rock.glb';
+
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+            audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
+        }
+    }
+    return audioContextRef.current;
+  }, []);
 
   const stopAudio = () => {
     if (audioSourceRef.current) {
@@ -117,14 +132,19 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
       playBuffer(audioBufferRef.current);
       return;
     }
+    
     setIsGeneratingAudio(true);
     try {
+      const ctx = getAudioContext();
+      if (!ctx) throw new Error("Audio not supported");
+
       const result = await generateRockSpeech(`This is ${rock.name}. ${rock.description}`);
       const audioBytes = decode(result.audioData);
-      const buffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
+      const buffer = await decodeAudioData(audioBytes, ctx, 24000, 1);
       audioBufferRef.current = buffer;
       playBuffer(buffer);
     } catch (error) {
+      console.error(error);
       toast.error("Audio unavailable");
     } finally {
       setIsGeneratingAudio(false);
@@ -132,19 +152,22 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
   };
 
   const playBuffer = (buffer: AudioBuffer) => {
-    if (audioContext.state === 'suspended') audioContext.resume();
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    if (ctx.state === 'suspended') ctx.resume();
     
-    const source = audioContext.createBufferSource();
+    const source = ctx.createBufferSource();
     source.buffer = buffer;
     
     // Analyzer for visualizer
-    const analyser = audioContext.createAnalyser();
+    const analyser = ctx.createAnalyser();
     analyser.fftSize = 64;
     analyserRef.current = analyser;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
     source.connect(analyser);
-    analyser.connect(audioContext.destination);
+    analyser.connect(ctx.destination);
     
     source.onended = () => {
         setIsPlaying(false);
@@ -303,14 +326,14 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
          {/* 3D Model Viewer Container */}
          <div className="space-y-3">
             <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                <Cube className="w-3 h-3 text-cyan-400" /> Digital Specimen
+                <Box className="w-3 h-3 text-cyan-400" /> Digital Specimen
             </h3>
-            <div className="w-full h-72 rounded-2xl overflow-hidden border border-white/10 relative bg-[#080c14] shadow-inner">
+            <div className="w-full h-80 rounded-2xl overflow-hidden border border-white/10 relative bg-[#080c14] shadow-inner cursor-crosshair">
                 {/* HUD Corners */}
-                <div className="absolute top-2 left-2 w-4 h-4 border-t border-l border-white/20 rounded-tl" />
-                <div className="absolute top-2 right-2 w-4 h-4 border-t border-r border-white/20 rounded-tr" />
-                <div className="absolute bottom-2 left-2 w-4 h-4 border-b border-l border-white/20 rounded-bl" />
-                <div className="absolute bottom-2 right-2 w-4 h-4 border-b border-r border-white/20 rounded-br" />
+                <div className="absolute top-2 left-2 w-4 h-4 border-t border-l border-white/20 rounded-tl pointer-events-none z-30" />
+                <div className="absolute top-2 right-2 w-4 h-4 border-t border-r border-white/20 rounded-tr pointer-events-none z-30" />
+                <div className="absolute bottom-2 left-2 w-4 h-4 border-b border-l border-white/20 rounded-bl pointer-events-none z-30" />
+                <div className="absolute bottom-2 right-2 w-4 h-4 border-b border-r border-white/20 rounded-br pointer-events-none z-30" />
                 
                 <Suspense fallback={
                     <div className="flex flex-col items-center justify-center w-full h-full text-cyan-400">
@@ -318,11 +341,11 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
                         <span className="text-xs font-mono uppercase tracking-wider animate-pulse">Constructing Voxel Matrix...</span>
                     </div>
                 }>
-                    <Rock3DViewer modelUrl={threeDModelUrl} />
+                    <Rock3DViewer modelUrl={threeDModelUrl} rock={rock} />
                 </Suspense>
             </div>
             <p className="text-[9px] text-gray-600 text-center uppercase tracking-wide font-mono">
-              // CAUTION: Model represents generic class data.
+              // INTERACTIVE: HOVER DATA POINTS FOR ANALYSIS
             </p>
          </div>
 

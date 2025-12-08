@@ -7,9 +7,6 @@ import toast from 'react-hot-toast';
 
 const Clover3DModel = lazy(() => import('./Clover3DModel').then(module => ({ default: module.Clover3DModel })));
 
-// -- LOCAL AUDIO CONTEXT --
-const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-
 interface CloverOverlayProps {
   user: User;
   onDismiss: () => void;
@@ -24,6 +21,9 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const [opacity, setOpacity] = useState(0);
   const [interactionState, setInteractionState] = useState<'SCRIPT' | 'MENU'>('SCRIPT');
   
+  // Audio Context Ref
+  const audioContextRef = useRef<AudioContext | null>(null);
+
   // Lip Sync & Audio Viz
   const [currentViseme, setCurrentViseme] = useState(0);
   const [audioAmplitude, setAudioAmplitude] = useState(0); // For waveform visualization
@@ -33,37 +33,50 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const visemeDataRef = useRef<{time: number, value: number}[]>([]);
   const audioPlaybackTimeRef = useRef(0);
 
-  const [activeMode, setActiveMode] = useState<'INTRO' | 'TOUR' | 'CHALLENGE' | 'REWARD'>(initialMode);
+  const [activeMode, setActiveMode] = useState<'INTRO' | 'MENU' | 'TOUR' | 'CHALLENGE' | 'REWARD'>(initialMode);
   const currentScriptResolve = useRef<(() => void) | null>(null);
+
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+            audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
+        }
+    }
+    return audioContextRef.current;
+  }, []);
 
   // FX Sound Engine
   const playFx = useCallback((type: 'open' | 'close' | 'type') => {
-    if (audioContext.state === 'suspended') audioContext.resume();
-    const osc = audioContext.createOscillator();
-    const gain = audioContext.createGain();
+    const ctx = getAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
     
     if (type === 'open') {
-        osc.frequency.setValueAtTime(200, audioContext.currentTime);
-        osc.frequency.linearRampToValueAtTime(600, audioContext.currentTime + 0.3);
-        gain.gain.setValueAtTime(0.1, audioContext.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+        osc.frequency.setValueAtTime(200, ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(600, ctx.currentTime + 0.3);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
     } else if (type === 'close') {
-        osc.frequency.setValueAtTime(400, audioContext.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.2);
-        gain.gain.setValueAtTime(0.1, audioContext.currentTime);
-        gain.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.2);
+        osc.frequency.setValueAtTime(400, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(100, ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
     } else {
         osc.type = 'square';
-        osc.frequency.setValueAtTime(800, audioContext.currentTime);
-        gain.gain.setValueAtTime(0.01, audioContext.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.03);
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        gain.gain.setValueAtTime(0.01, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03);
     }
 
     osc.connect(gain);
-    gain.connect(audioContext.destination);
+    gain.connect(ctx.destination);
     osc.start();
-    osc.stop(audioContext.currentTime + 0.3);
-  }, []);
+    osc.stop(ctx.currentTime + 0.3);
+  }, [getAudioContext]);
 
   useEffect(() => {
     playFx('open');
@@ -107,27 +120,30 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
       stopAudio();
       try {
           setIsTalking(true);
+          const ctx = getAudioContext();
+          if (!ctx) throw new Error("Audio unavailable");
+
           const { audioData, visemes } = await generateRockSpeech(text);
           visemeDataRef.current = visemes;
           
           const audioBytes = decode(audioData);
-          const buffer = await decodeAudioData(audioBytes, audioContext, 24000, 1);
+          const buffer = await decodeAudioData(audioBytes, ctx, 24000, 1);
 
-          if (audioContext.state === 'suspended') await audioContext.resume();
+          if (ctx.state === 'suspended') await ctx.resume();
 
-          const source = audioContext.createBufferSource();
+          const source = ctx.createBufferSource();
           source.buffer = buffer;
           
           // Analyzer for visualizer
-          const analyser = audioContext.createAnalyser();
+          const analyser = ctx.createAnalyser();
           analyser.fftSize = 32;
           analyserRef.current = analyser;
           const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
           source.connect(analyser);
-          analyser.connect(audioContext.destination);
+          analyser.connect(ctx.destination);
 
-          const startTime = audioContext.currentTime;
+          const startTime = ctx.currentTime;
 
           const animate = () => {
             if (!audioSourceRef.current) {
@@ -135,7 +151,7 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
                 setAudioAmplitude(0);
                 return;
             }
-            audioPlaybackTimeRef.current = (audioContext.currentTime - startTime) * 1000;
+            audioPlaybackTimeRef.current = (ctx.currentTime - startTime) * 1000;
             
             // Viseme Logic
             let activeViseme = 0;
@@ -264,6 +280,13 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
       playFx('close');
       stopAudio();
       setTimeout(onDismiss, 500);
+  };
+  
+  const handleCompleteChallenge = () => {
+      setDisplayedText("Challenge data uploaded. Analyzing...");
+      setTimeout(() => {
+          playRewardScript();
+      }, 1500);
   };
 
   // --- RENDER HELPERS ---

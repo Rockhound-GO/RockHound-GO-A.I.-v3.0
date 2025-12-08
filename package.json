@@ -17,7 +17,8 @@
     "react-hot-toast": "^2.6.0",
     "three": "^0.181.2",
     "@react-three/fiber": "8.16.8",
-    "@react-three/drei": "9.106.0"
+    "@react-three/drei": "9.106.0",
+    "react-webcam": "^7.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

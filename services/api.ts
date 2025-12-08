@@ -1,4 +1,7 @@
-import { Rock } from '../types';
+import { Rock, User, Badge, OperatorStats } from '../types';
+
+// Re-export types to maintain compatibility
+export type { User, Badge, OperatorStats };
 
 // --- NEURAL NETWORK CONFIGURATION ---
 // Set FALSE for production deployment to real server
@@ -6,32 +9,6 @@ const USE_MOCK_SERVER = true;
 const API_URL = 'http://localhost:3000'; 
 
 // --- TYPES ---
-export interface OperatorStats {
-  totalScans: number;
-  distanceTraveled: number;
-  uniqueSpeciesFound: number;
-  legendaryFinds: number;
-}
-
-export interface Badge {
-  id: string;
-  dateUnlocked: string;
-}
-
-export interface User {
-  id: string;
-  username: string;
-  email: string;
-  token?: string;
-  xp: number;
-  level: number;
-  rankTitle?: string;
-  avatarUrl?: string;
-  createdAt?: string;
-  isAdmin?: boolean;
-  operatorStats?: OperatorStats;
-  badges?: Badge[];
-}
 
 export interface AddRockResponse {
   rock: Rock;
@@ -86,7 +63,7 @@ export const api = {
         rankTitle: 'Novice Scout',
         isAdmin: users.length === 0,
         createdAt: new Date().toISOString(),
-        operatorStats: { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0 },
+        operatorStats: { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0, highestRarityFound: 0, scanStreak: 0 },
         badges: []
       }; 
       
@@ -132,7 +109,8 @@ export const api = {
               isAdmin: true,
               avatarUrl: null,
               createdAt: new Date().toISOString(),
-              operatorStats: { totalScans: 9000, distanceTraveled: 40000, uniqueSpeciesFound: 500, legendaryFinds: 100 }
+              operatorStats: { totalScans: 9000, distanceTraveled: 40000, uniqueSpeciesFound: 500, legendaryFinds: 100, highestRarityFound: 99, scanStreak: 45 },
+              badges: []
           };
           users.push(adminUser);
           localStorage.setItem('mock_users', JSON.stringify(users));
@@ -329,9 +307,11 @@ export const api = {
         u.level = newLevel;
         
         // Update Operator Stats
-        if (!u.operatorStats) u.operatorStats = { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0 };
+        if (!u.operatorStats) u.operatorStats = { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0, highestRarityFound: 0, scanStreak: 0 };
         u.operatorStats.totalScans += 1;
         if (rock.rarityScore > 90) u.operatorStats.legendaryFinds += 1;
+        if (rock.rarityScore > (u.operatorStats.highestRarityFound || 0)) u.operatorStats.highestRarityFound = rock.rarityScore;
+        u.operatorStats.scanStreak = (u.operatorStats.scanStreak || 0) + 1;
         
         localStorage.setItem('mock_users', JSON.stringify(users));
         
