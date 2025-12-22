@@ -9,6 +9,7 @@ import { CloverOverlay } from './components/CloverOverlay';
 import { CloverButton } from './components/CloverButton';
 import { SyncStatus } from './components/SyncStatus';
 import { useVisitedViews } from './hooks/useVisitedViews';
+import { Clover3DModel } from './components/Clover3DModel';
 
 // -- LAZY MODULES --
 const Scanner = lazy(() => import('./components/Scanner').then(m => ({ default: m.Scanner })));
@@ -21,6 +22,7 @@ const UserMap = lazy(() => import('./components/UserMap').then(m => ({ default: 
 const WeatherDashboard = lazy(() => import('./components/WeatherDashboard').then(m => ({ default: m.WeatherDashboard })));
 const Achievements = lazy(() => import('./components/Achievements').then(m => ({ default: m.Achievements })));
 const Guide = lazy(() => import('./components/Guide').then(m => ({ default: m.Guide })));
+const RockComparison = lazy(() => import('./components/RockComparison').then(m => ({ default: m.RockComparison })));
 
 // -- TYPES --
 enum View {
@@ -32,7 +34,8 @@ enum View {
   ADMIN = 'ADMIN',
   MAP = 'MAP',
   WEATHER = 'WEATHER',
-  ACHIEVEMENTS = 'ACHIEVEMENTS'
+  ACHIEVEMENTS = 'ACHIEVEMENTS',
+  COMPARISON = 'COMPARISON' // New View for Rock Comparison
 }
 
 // -- AUDIO ENGINE 2.0 (Ambient Drone + FX) --
@@ -41,7 +44,7 @@ const useSciFiAudio = () => {
   const droneOscRef = useRef<OscillatorNode | null>(null);
   const droneGainRef = useRef<GainNode | null>(null);
 
-  const init = () => {
+  const init = useCallback(() => {
     try {
         const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioContextClass) return; 
@@ -56,9 +59,9 @@ const useSciFiAudio = () => {
     } catch (e) {
         console.warn("Audio Context Init Failed:", e);
     }
-  };
+  }, []);
 
-  const startAmbient = () => {
+  const startAmbient = useCallback(() => {
     try {
         init();
         if (!ctxRef.current || droneOscRef.current) return;
@@ -100,7 +103,7 @@ const useSciFiAudio = () => {
     } catch (e) {
         // Silent fail for ambient sound
     }
-  };
+  }, [init]);
 
   const playFX = useCallback((type: 'hover' | 'click' | 'success' | 'boot' | 'error') => {
     try {
@@ -179,7 +182,7 @@ const useSciFiAudio = () => {
     } catch (e) {
         console.warn("Audio FX failed", e);
     }
-  }, []);
+  }, [init]);
 
   return { playFX, startAmbient };
 };
@@ -190,11 +193,15 @@ const App: React.FC = () => {
   const [collection, setCollection] = useState<Rock[]>([]);
   const [selectedRock, setSelectedRock] = useState<Rock | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [bootState, setBootState] = useState<'SPLASH' | 'HEX_DUMP' | 'READY'>('SPLASH');
-  const [hexLines, setHexLines] = useState<string[]>([]);
+  const [bootState, setBootState] = useState<'SPLASH' | 'READY'>('SPLASH');
+  
   const [showClover, setShowClover] = useState(false);
   const [cloverMode, setCloverMode] = useState<'INTRO' | 'MENU' | 'TOUR'>('INTRO');
   
+  // Rock Comparison States
+  const [selectedRocksForComparison, setSelectedRocksForComparison] = useState<Rock[]>([]);
+  const [comparisonModeActiveFromDetails, setComparisonModeActiveFromDetails] = useState(false);
+
   // Audio & Interaction Hooks
   const { playFX, startAmbient } = useSciFiAudio();
   const { visitedViews, markViewVisited } = useVisitedViews();
@@ -202,7 +209,6 @@ const App: React.FC = () => {
   // Refs for 3D Tilt Effect
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const mousePos = useRef({ x: 0, y: 0 });
 
   // -- 3D HOLOGRAPHIC TILT ENGINE --
   useEffect(() => {
@@ -212,9 +218,6 @@ const App: React.FC = () => {
       // Normalize mouse position -1 to 1
       const x = (e.clientX / innerWidth) * 2 - 1;
       const y = (e.clientY / innerHeight) * 2 - 1;
-      
-      // Store for smooth interpolation if needed later
-      mousePos.current = { x, y };
 
       // Apply Tilt
       contentRef.current.style.transform = `
@@ -244,43 +247,8 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (bootState === 'HEX_DUMP') {
-      try {
-        playFX('boot');
-      } catch (e) {
-        console.warn("Boot audio failed, proceeding visually.");
-      }
-      
-      // SAFETY: If the interval logic fails or hangs, force transition after 3s
-      const safetyTimer = setTimeout(() => {
-         setBootState(prev => prev === 'HEX_DUMP' ? 'READY' : prev);
-         try { startAmbient(); } catch(e) {}
-      }, 3000);
-
-      // Generate random hex dump lines
-      let lineCount = 0;
-      const maxLines = 25;
-      const interval = setInterval(() => {
-        const addr = `0x${Math.floor(Math.random()*65535).toString(16).toUpperCase().padStart(4, '0')}`;
-        const data = Array(4).fill(0).map(() => Math.floor(Math.random()*255).toString(16).toUpperCase().padStart(2,'0')).join(' ');
-        setHexLines(prev => [...prev.slice(-15), `${addr} : ${data} ... OK`]); // Keep last 15 lines
-        lineCount++;
-        if (lineCount > maxLines) {
-          clearInterval(interval);
-          clearTimeout(safetyTimer); // Clear safety timer as we finished normally
-          setBootState('READY');
-          startAmbient(); // Start the engine hum
-        }
-      }, 50);
-      return () => {
-        clearInterval(interval);
-        clearTimeout(safetyTimer);
-      };
-    }
-  }, [bootState, playFX, startAmbient]);
-
-  useEffect(() => {
     if (user && bootState === 'READY') {
+      startAmbient();
       loadCollection();
       if (!localStorage.getItem('intro_shown')) {
         setTimeout(() => {
@@ -290,7 +258,7 @@ const App: React.FC = () => {
         }, 1000);
       }
     }
-  }, [user, bootState]);
+  }, [user, bootState, startAmbient]);
 
   // -- DATA OPERATIONS --
   const loadCollection = async () => {
@@ -336,8 +304,31 @@ const App: React.FC = () => {
     playFX('click');
     setCurrentView(view);
     markViewVisited(view); // Track for "World Exploration" stats
-    window.history.pushState({ view }, '', `?view=${view.toLowerCase()}`);
+    // Clear comparison states if navigating away from collection/details
+    if (view !== View.COLLECTION && view !== View.DETAILS && view !== View.COMPARISON) {
+        setSelectedRocksForComparison([]);
+        setComparisonModeActiveFromDetails(false);
+    }
+    try {
+      window.history.pushState({ view }, '', `?view=${view.toLowerCase()}`);
+    } catch (e) {
+      // Silently fail history update in constrained environments
+    }
   };
+
+  // -- ROCK COMPARISON LOGIC --
+  const startComparisonMode = useCallback((initialRock?: Rock) => {
+    setSelectedRocksForComparison(initialRock ? [initialRock] : []);
+    setComparisonModeActiveFromDetails(true);
+    // Fix: Changed View.COLCOLLECTION to View.COLLECTION
+    handleViewChange(View.COLLECTION);
+  }, [handleViewChange]);
+
+  const finalizeComparison = useCallback((rocks: Rock[]) => {
+    setSelectedRocksForComparison(rocks);
+    setComparisonModeActiveFromDetails(false); // Reset this flag after selection is finalized
+    handleViewChange(View.COMPARISON);
+  }, [handleViewChange]);
 
   // -- RENDER ROUTER --
   const renderView = () => {
@@ -345,11 +336,27 @@ const App: React.FC = () => {
       case View.SCANNER:
         return <Scanner onRockDetected={handleRockAdded} />;
       case View.COLLECTION:
-        return <Collection rocks={collection} onRockClick={(rock) => { playFX('click'); setSelectedRock(rock); setCurrentView(View.DETAILS); }} />;
+        return (
+            <Collection 
+                rocks={collection} 
+                onRockClick={(rock) => { playFX('click'); setSelectedRock(rock); setCurrentView(View.DETAILS); }}
+                onStartComparisonMode={startComparisonMode}
+                onFinalizeComparison={finalizeComparison}
+                preSelectedRocks={comparisonModeActiveFromDetails ? selectedRocksForComparison : []}
+                isComparisonModeActive={comparisonModeActiveFromDetails || selectedRocksForComparison.length > 0} // Activate mode if rocks are pre-selected
+            />
+        );
       case View.STATS:
         return <Statistics rocks={collection} />;
       case View.DETAILS:
-        return selectedRock ? <RockDetails rock={selectedRock} onBack={() => handleViewChange(View.COLLECTION)} onDelete={handleRockDeleted} /> : null;
+        return selectedRock ? (
+            <RockDetails 
+                rock={selectedRock} 
+                onBack={() => handleViewChange(View.COLLECTION)} 
+                onDelete={handleRockDeleted} 
+                onStartComparisonMode={startComparisonMode}
+            />
+        ) : null;
       case View.PROFILE:
         return user ? <Profile user={user} onUpdateUser={setUser} onBack={() => handleViewChange(View.SCANNER)} onReplayIntro={() => { setCloverMode('INTRO'); setShowClover(true); }} /> : null;
       case View.ADMIN:
@@ -360,6 +367,8 @@ const App: React.FC = () => {
         return <WeatherDashboard onBack={() => handleViewChange(View.SCANNER)} />;
       case View.ACHIEVEMENTS:
         return <Achievements user={user!} rocks={collection} />;
+      case View.COMPARISON:
+        return <RockComparison rocksToCompare={selectedRocksForComparison} onBack={() => handleViewChange(View.COLLECTION)} />;
       default:
         return <Scanner onRockDetected={handleRockAdded} />;
     }
@@ -367,16 +376,7 @@ const App: React.FC = () => {
 
   // -- BOOT SCREENS --
   if (bootState === 'SPLASH') {
-    return <SplashScreen onFinish={() => setBootState('HEX_DUMP')} />;
-  }
-
-  if (bootState === 'HEX_DUMP') {
-    return (
-      <div className="h-screen w-screen bg-black text-green-500 font-mono text-xs p-4 overflow-hidden flex flex-col justify-end">
-        {hexLines.map((line, i) => <div key={i}>{line}</div>)}
-        <div className="animate-pulse mt-2">_ SYSTEM_BOOT_SEQUENCE_INITIATED</div>
-      </div>
-    );
+    return <SplashScreen onFinish={() => { playFX('boot'); setBootState('READY'); }} />;
   }
 
   if (!user) {
@@ -427,10 +427,24 @@ const App: React.FC = () => {
 
       {/* --- MAIN VIEWPORT (Holographic Container) --- */}
       <main className="flex-1 relative perspective-container overflow-hidden z-30">
-         <div ref={contentRef} className="w-full h-full holographic-plane bg-[#030508]">
-            <Suspense fallback={<div className="flex h-full items-center justify-center"><ScanLine className="animate-spin text-cyan-500" /></div>}>
-                {renderView()}
-            </Suspense>
+         <div ref={contentRef} className="w-full h-full holographic-plane relative bg-black">
+            {/* Dynamic Background Video */}
+            <video 
+              autoPlay 
+              loop 
+              muted 
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover opacity-40 z-0 pointer-events-none"
+              src="/video/rockhound-loading.mp4"
+            />
+            {/* Darkening Overlay */}
+            <div className="absolute inset-0 bg-[#030508]/80 z-0 pointer-events-none" />
+
+            <div className="relative z-10 w-full h-full">
+                <Suspense fallback={<div className="flex h-full items-center justify-center"><ScanLine className="animate-spin text-cyan-500" /></div>}>
+                    {renderView()}
+                </Suspense>
+            </div>
          </div>
          
          {/* CRT Overlay Effects */}
@@ -449,6 +463,13 @@ const App: React.FC = () => {
          
          {/* FLOATING CLOVER BUTTON */}
          {!showClover && <CloverButton onClick={() => { setCloverMode('MENU'); setShowClover(true); playFX('click'); }} />}
+         
+         {/* GUIDE OVERLAY */}
+         <Suspense>
+            {!user.operatorStats?.totalScans && currentView === View.SCANNER && !showClover && (
+                 <Guide onClose={() => {}} />
+            )}
+         </Suspense>
       </main>
 
       {/* --- TACTICAL DOCK (Navigation) --- */}

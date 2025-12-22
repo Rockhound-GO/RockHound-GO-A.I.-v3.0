@@ -21,7 +21,14 @@ const JWT_SECRET = process.env.JWT_SECRET || 'rockhound-neural-key-v4';
 
 // --- MIDDLEWARE STACK ---
 app.use(compression()); // Optimize bandwidth
-app.use(cors());
+// Explicitly configure CORS for robust cross-origin requests
+const corsOptions = {
+    origin: true, // Reflects the request origin, or '*' for no origin check
+    credentials: true, // Allows cookies and Authorization headers to be sent
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // Explicitly allowed methods
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'], // Explicitly allowed headers
+};
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '50mb' })); 
 
 // --- RATE LIMITING (Security) ---
@@ -98,7 +105,7 @@ app.get('/api/stream', authenticateToken, verifyAdmin, (req, res) => {
 
 app.post('/auth/register', async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password } = req.body; 
     
     if (await User.findOne({ $or: [{ email }, { username }] })) {
       return res.status(400).json({ message: 'IDENTITY ALREADY REGISTERED' });
@@ -256,7 +263,7 @@ app.post('/api/rocks', authenticateToken, async (req, res) => {
     if (user) {
       user.xp += xpGained;
       const oldLevel = user.level;
-      user.level = Math.floor(user.xp / 1000) + 1;
+      user.level = Math.floor(user.xp / 100) + 1;
       
       // Update stats
       if (!user.operatorStats) user.operatorStats = {};

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Mail, Lock, User, ArrowRight, Loader2, AlertTriangle, ShieldCheck, Fingerprint, Scan, Cpu } from 'lucide-react';
+import { Mail, Lock, User, ArrowRight, Loader2, AlertTriangle, ShieldCheck, Fingerprint, Scan, Cpu, Server, WifiOff } from 'lucide-react';
 import { api } from '../services/api';
 
 // -- AUDIO ENGINE (Local) --
@@ -120,11 +120,20 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
       onLogin(user);
     } catch (err: any) {
       playSound('error');
-      setError(err.message || "Access Denied");
+      console.error("Authentication failed:", err);
+      // Give more specific feedback if it's a fetch failure
+      if (err.message && (err.message.includes("SERVER OFFLINE") || err.message.includes("Failed to fetch"))) {
+          setError("SYSTEM OFFLINE: START THE SERVER (server/index.js)");
+      } else {
+          setError(err.message || "Access Denied");
+      }
     } finally {
       setIsLoading(false);
     }
   };
+
+  // Safe access to process env for display
+  const targetUrl = (window as any).process?.env?.BACKEND_API_URL || 'OFFLINE SIMULATION';
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-[#030508] relative overflow-hidden font-sans perspective-1000">
@@ -168,7 +177,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
              </div>
           </div>
           
-          <h1 className="text-4xl font-bold text-white tracking-[0.2em] mb-1 font-sans">ROCKHOUND</h1>
+          <h1 className="text-4xl font-bold text-white tracking-[0.2em] mb-1 font-sans">ROCKHOUND GO</h1>
           <div className="flex items-center justify-center gap-3 text-[10px] text-cyan-500/70 font-mono tracking-widest uppercase">
             <span className="animate-pulse">●</span>
             <span>Secure Terminal</span>
@@ -237,9 +246,12 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
             </div>
 
             {error && (
-              <div className="flex items-center gap-3 text-red-400 text-[10px] bg-red-900/10 p-3 rounded border border-red-500/20 uppercase tracking-wide animate-pulse">
-                <AlertTriangle className="w-3 h-3 flex-none" />
-                {error}
+              <div className="flex flex-col gap-1 items-start text-red-400 text-[10px] bg-red-900/10 p-3 rounded border border-red-500/20 uppercase tracking-wide animate-pulse w-full">
+                <div className="flex items-center gap-2 font-bold">
+                    <AlertTriangle className="w-3 h-3 flex-none" />
+                    CONNECTION FAILED
+                </div>
+                <div className="opacity-80 leading-relaxed">{error}</div>
               </div>
             )}
 
@@ -281,7 +293,10 @@ export const Auth: React.FC<AuthProps> = ({ onLogin }) => {
                 <Lock className="w-3 h-3" />
                 ENCRYPTED CONNECTION ESTABLISHED
             </p>
-            <p className="text-[8px] text-gray-700 font-mono">v4.5.0 // ROCKHOUND_CORP</p>
+            <div className="flex items-center justify-center gap-2 text-[8px] text-gray-700 font-mono bg-black/20 p-1 rounded inline-block">
+                <WifiOff className="w-3 h-3 text-yellow-500" />
+                MODE: {targetUrl}
+            </div>
         </div>
       </div>
     </div>

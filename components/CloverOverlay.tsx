@@ -20,6 +20,7 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const [isThinking, setIsThinking] = useState(false);
   const [opacity, setOpacity] = useState(0);
   const [interactionState, setInteractionState] = useState<'SCRIPT' | 'MENU'>('SCRIPT');
+  const [currentMood, setCurrentMood] = useState('ANALYTICAL');
   
   // Audio Context Ref
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -77,6 +78,12 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
     osc.start();
     osc.stop(ctx.currentTime + 0.3);
   }, [getAudioContext]);
+
+  // -- RANDOM MOOD GENERATOR --
+  const getRandomMood = useCallback(() => {
+    const moods = ['ANALYTICAL', 'EXCITED', 'SERIOUS', 'WITTY', 'ENCOURAGING'];
+    return moods[Math.floor(Math.random() * moods.length)];
+  }, []);
 
   useEffect(() => {
     playFx('open');
@@ -198,7 +205,7 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
       }
   };
 
-  // --- SCRIPT LOGIC (Simplified for brevity) ---
+  // --- SCRIPT LOGIC ---
   const playScript = async (lines: string[]) => {
       setInteractionState('SCRIPT');
       for (const line of lines) {
@@ -218,18 +225,25 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const playIntroScript = async () => {
       setActiveMode('INTRO');
       setIsThinking(true);
+      setCurrentMood('PROFESSIONAL');
       try {
-        const script = await generateCloverDialogue('INTRO', { username: user.username, level: user.level });
+        const script = await generateCloverDialogue('INTRO', { username: user.username, level: user.level, mood: 'PROFESSIONAL' });
         setIsThinking(false);
         await playScript(script);
       } catch { setIsThinking(false); handleClose(); }
   };
 
-  // ... (Other script handlers: playTourScript, playChallengeScript, etc. remain similar in logic, just updated calls) ...
   const playTourScript = async () => {
       setActiveMode('TOUR'); setIsThinking(true); setDisplayedText("Scanning interface topography...");
       try {
-        const script = await generateCloverDialogue('TOUR', { view: currentView, username: user.username, level: user.level });
+        const mood = getRandomMood();
+        setCurrentMood(mood);
+        const script = await generateCloverDialogue('TOUR', { 
+            view: currentView, 
+            username: user.username, 
+            level: user.level,
+            mood: mood
+        });
         setIsThinking(false); await playScript(script);
       } catch { setIsThinking(false); handleClose(); }
   };
@@ -237,23 +251,42 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const playChallengeScript = async () => {
       setActiveMode('CHALLENGE'); setIsThinking(true); setDisplayedText("Decrypting bounty protocols...");
       try {
-        const script = await generateCloverDialogue('CHALLENGE', { username: user.username, level: user.level });
+        const mood = getRandomMood();
+        setCurrentMood(mood);
+        const script = await generateCloverDialogue('CHALLENGE', { 
+            username: user.username, 
+            level: user.level,
+            mood: mood
+        });
         setIsThinking(false); await playScript(script);
       } catch { setIsThinking(false); handleClose(); }
   };
 
   const playRewardScript = async () => {
       setActiveMode('REWARD'); setIsThinking(true); setDisplayedText("Verifying credits transfer...");
+      setCurrentMood('EXCITED');
       try {
-        const script = await generateCloverDialogue('REWARD', { username: user.username, level: user.level });
+        const script = await generateCloverDialogue('REWARD', { 
+            username: user.username, 
+            level: user.level,
+            mood: 'EXCITED' 
+        });
         setIsThinking(false); await playScript(script);
       } catch { setIsThinking(false); handleClose(); }
   };
 
   const playStatusScript = async () => {
+      setActiveMode('REWARD'); // Reuse reward/status visual mode
       setInteractionState('SCRIPT'); setIsThinking(true); setDisplayedText("Accessing personnel records...");
       try {
-        const script = await generateCloverDialogue('STATUS', { username: user.username, level: user.level, xp: user.xp });
+        const mood = getRandomMood();
+        setCurrentMood(mood);
+        const script = await generateCloverDialogue('STATUS', { 
+            username: user.username, 
+            level: user.level, 
+            xp: user.xp,
+            mood: mood
+        });
         setIsThinking(false); await playScript(script);
       } catch { setIsThinking(false); handleClose(); }
   };
@@ -311,8 +344,8 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
         {/* Global Darkener */}
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={handleClose} />
 
-        {/* 3D Container */}
-        <div className="absolute inset-0 pointer-events-none flex items-center justify-center pb-32">
+        {/* 3D Container - Pushed up further to avoid overlap */}
+        <div className="absolute inset-0 pointer-events-none flex items-center justify-center pb-48">
              <div className="w-full max-w-lg aspect-square relative animate-[hologram-drift_6s_ease-in-out_infinite]">
                  {/* Holo Projector Base Light */}
                  <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-64 h-12 bg-[radial-gradient(ellipse_at_center,var(--tw-gradient-stops))] from-${isReward ? 'yellow' : 'cyan'}-500/40 to-transparent blur-xl`} />
@@ -322,6 +355,7 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
                      isTalking={isTalking}
                      currentViseme={currentViseme}
                      audioPlaybackTime={audioPlaybackTimeRef.current}
+                     mood={currentMood}
                    />
                  </Suspense>
              </div>
@@ -346,13 +380,13 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
                 <div className="p-6 relative">
                     <div className="absolute inset-0 scanline-overlay pointer-events-none opacity-20" />
                     
-                    {/* Main Text Area */}
-                    <div className="min-h-[80px] mb-6 flex items-start gap-4">
+                    {/* Main Text Area - Increased margin to separate from buttons */}
+                    <div className="min-h-[80px] mb-8 flex items-start gap-4">
                         <div className={`mt-1 p-2 rounded bg-${isReward ? 'yellow' : 'cyan'}-900/20 border border-${isReward ? 'yellow' : 'cyan'}-500/30`}>
                             {isReward ? <Trophy className={`w-5 h-5 ${accentColor}`} /> : <Cpu className={`w-5 h-5 ${accentColor}`} />}
                         </div>
                         <div className="flex-1">
-                            <h3 className={`text-xs font-bold ${accentColor} mb-1 tracking-[0.2em]`}>CLOVER.AI</h3>
+                            <h3 className={`text-xs font-bold ${accentColor} mb-1 tracking-[0.2em]`}>CLOVER.AI // {currentMood}</h3>
                             <p className="text-gray-200 text-lg font-medium leading-relaxed font-sans text-shadow-sm">
                                 {displayedText}
                                 <span className="inline-block w-2 h-5 ml-1 bg-current align-middle animate-pulse" />
@@ -360,21 +394,19 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
                         </div>
                     </div>
 
-                    {/* Audio Waveform Visualization */}
-                    {isTalking && (
-                        <div className="h-8 flex items-center justify-center gap-1 mb-4 opacity-50">
-                            {Array.from({ length: 20 }).map((_, i) => (
-                                <div 
-                                    key={i} 
-                                    className={`w-1 bg-current rounded-full transition-all duration-75 ${accentColor}`}
-                                    style={{ 
-                                        height: `${Math.max(10, Math.min(100, audioAmplitude * (Math.random() + 0.5)))}%`,
-                                        opacity: Math.max(0.3, audioAmplitude / 255)
-                                    }} 
-                                />
-                            ))}
-                        </div>
-                    )}
+                    {/* Audio Waveform Visualization - Always rendered to preserve layout space */}
+                    <div className={`h-8 flex items-center justify-center gap-1 mb-4 transition-opacity duration-300 ${isTalking ? 'opacity-50' : 'opacity-0'}`}>
+                        {Array.from({ length: 20 }).map((_, i) => (
+                            <div 
+                                key={i} 
+                                className={`w-1 bg-current rounded-full transition-all duration-75 ${accentColor}`}
+                                style={{ 
+                                    height: `${Math.max(10, Math.min(100, audioAmplitude * (Math.random() + 0.5)))}%`,
+                                    opacity: Math.max(0.3, audioAmplitude / 255)
+                                }} 
+                            />
+                        ))}
+                    </div>
 
                     {/* Interaction Grid */}
                     {interactionState === 'MENU' && !isThinking && (

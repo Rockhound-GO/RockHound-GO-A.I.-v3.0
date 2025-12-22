@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -6,15 +7,13 @@
     <meta name="theme-color" content="#030508" />
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>RockHound-GO // SYSTEM_ONLINE</title>
+    <title>RockHound GO // SYSTEM_ONLINE</title>
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/7543/7543166.png">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" href="https://cdn.tailwindcss.com" as="script">
-    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" as="style">
-    <link rel="preload" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" as="script">
+    
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" as="style">
     
     <link rel="preload" href="https://aistudiocdn.com/assets/rock.glb" as="fetch" crossOrigin="anonymous">
@@ -27,6 +26,13 @@
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- Polyfill for process.env -->
+    <script>
+      window.process = window.process || { env: {} };
+      // For external deployment, set your backend API URL here or via environment variables
+      // e.g., window.process.env.BACKEND_API_URL = 'https://your-deployed-backend.com';
+    </script>
 
     <style>
       :root {
@@ -48,9 +54,7 @@
         -webkit-tap-highlight-color: transparent;
       }
 
-      /* --- GLOBAL CRT & ATMOSPHERE EFFECTS --- */
-      
-      /* 1. Scanline Overlay */
+      /* Scanlines */
       .scanlines {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
@@ -61,36 +65,7 @@
         opacity: 0.6;
       }
 
-      /* 2. Vignette & Grain */
-      .vignette {
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: radial-gradient(circle at center, transparent 60%, rgba(3, 5, 8, 0.8) 100%);
-        pointer-events: none;
-        z-index: 9998;
-      }
-
-      /* 3. Liquid Chromatic Background */
-      .liquid-bg {
-        position: fixed;
-        top: -50%; left: -50%; right: -50%; bottom: -50%;
-        width: 200%; height: 200%;
-        background: 
-          radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.15), transparent 40%),
-          radial-gradient(circle at 80% 20%, rgba(34, 211, 238, 0.1), transparent 30%);
-        filter: blur(60px);
-        animation: liquid-drift 20s infinite alternate linear;
-        z-index: -1;
-      }
-
-      @keyframes liquid-drift {
-        0% { transform: rotate(0deg) translate(0, 0); }
-        33% { transform: rotate(2deg) translate(2%, 2%); }
-        66% { transform: rotate(-1deg) translate(-2%, 1%); }
-        100% { transform: rotate(0deg) translate(0, 0); }
-      }
-
-      /* --- SCROLLBARS --- */
+      /* Scrollbars */
       ::-webkit-scrollbar { width: 4px; height: 4px; }
       ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.02); }
       ::-webkit-scrollbar-thumb { background: rgba(34, 211, 238, 0.3); border-radius: 2px; }
@@ -100,12 +75,12 @@
       .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
       .pt-safe { padding-top: env(safe-area-inset-top); }
 
-      /* --- PRE-BOOT LOADER (Visible before React Loads) --- */
+      /* Static Boot Loader */
       #boot-terminal {
         position: fixed;
         top: 0; left: 0; right: 0; bottom: 0;
         display: flex;
-        flex-col: column;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
         background-color: #030508;
@@ -117,42 +92,50 @@
         color: #22d3ee;
         font-size: 12px;
         letter-spacing: 0.2em;
+        margin-top: 20px;
         animation: pulse 1s infinite;
       }
+      
+      .boot-spinner {
+        width: 40px;
+        height: 40px;
+        border: 2px solid rgba(34, 211, 238, 0.3);
+        border-top-color: #22d3ee;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
 
+      @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
       @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
-
     </style>
-    <script type="importmap">
+  <script type="importmap">
 {
   "imports": {
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
     "react": "https://aistudiocdn.com/react@^19.2.1",
-    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
-    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.6.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
     "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "three": "https://unpkg.com/three@0.165.0/build/three.module.js",
-    "@react-three/fiber": "https://unpkg.com/@react-three/fiber@8.16.8/dist/react-three-fiber.mjs",
-    "@react-three/drei": "https://unpkg.com/@react-three/drei@9.106.0/dist/react-three-drei.mjs",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.556.0",
+    "react-hot-toast": "https://aistudiocdn.com/react-hot-toast@^2.6.0",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "react-webcam": "https://aistudiocdn.com/react-webcam@^7.2.0",
+    "recharts": "https://aistudiocdn.com/recharts@^3.5.1",
+    "@react-three/drei": "https://aistudiocdn.com/@react-three/drei@^10.7.7",
+    "@react-three/fiber": "https://aistudiocdn.com/@react-three/fiber@^9.4.2",
+    "three": "https://aistudiocdn.com/three@^0.181.2",
     "three/": "https://aistudiocdn.com/three@^0.181.2/",
-    "react-webcam": "https://aistudiocdn.com/react-webcam@^7.2.0"
+    "@tanstack/react-virtual": "https://aistudiocdn.com/@tanstack/react-virtual@^3.0.1"
   }
 }
 </script>
-  </head>
+</head>
   <body>
-    <div class="scanlines"></div>
-    <div class="vignette"></div>
-    <div class="liquid-bg"></div>
-
     <div id="root">
+        <!-- Static pre-loader displayed until React hydrates -->
         <div id="boot-terminal">
-            <div style="width: 40px; height: 40px; border: 2px solid #374151; border-top-color: #22d3ee; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px;"></div>
+            <div class="boot-spinner"></div>
             <div class="boot-text">INITIALIZING CORE...</div>
-            <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
         </div>
     </div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

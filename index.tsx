@@ -16,7 +16,8 @@ window.onerror = (message, source, lineno, colno, error) => {
   console.error(
     "%c [CRITICAL FAILURE] %c SYSTEM INSTABILITY DETECTED", 
     "color: #ef4444; font-weight: bold; background: #220505; padding: 2px 5px;", 
-    "color: #ef4444; font-family: monospace;"
+    "color: #ef4444; font-family: monospace;",
+    "\nDetails:", error || message
   );
 };
 

@@ -57,7 +57,9 @@ const userSchema = new mongoose.Schema({
     totalScans: { type: Number, default: 0 },
     distanceTraveled: { type: Number, default: 0 }, // in km
     uniqueSpeciesFound: { type: Number, default: 0 },
-    legendaryFinds: { type: Number, default: 0 }
+    legendaryFinds: { type: Number, default: 0 },
+    highestRarityFound: { type: Number, default: 0 },
+    scanStreak: { type: Number, default: 0 }
   },
 
   // -- Unlocks --

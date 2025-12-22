@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, lazy, Suspense, useCallback } from 'react';
 import { Rock } from '../types';
-import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Box, Activity, ScanLine, FileWarning } from 'lucide-react';
+import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Box, Activity, ScanLine, FileWarning, GitCompare, Zap, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { generateRockSpeech } from '../services/geminiService';
 import { decode, decodeAudioData } from '../services/audioUtils';
@@ -79,9 +79,10 @@ interface RockDetailsProps {
   rock: Rock;
   onBack: () => void;
   onDelete: (id: string) => void;
+  onStartComparisonMode: (initialRock?: Rock) => void; // New prop for comparison
 }
 
-export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete }) => {
+export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete, onStartComparisonMode }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioAmplitude, setAudioAmplitude] = useState(0); // For Visualizer
@@ -190,6 +191,11 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
     animate();
   };
 
+  const handleCompareClick = () => {
+    playSound('click');
+    onStartComparisonMode(rock); // Initiate comparison with the current rock
+  };
+
   useEffect(() => {
       playSound('scan'); // Play scan sound on mount
       return () => stopAudio();
@@ -203,7 +209,7 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
       `}</style>
 
       {/* --- IMMERSIVE HEADER --- */}
-      <div className="relative h-[55vh] flex-none overflow-hidden group">
+      <div className="relative h-[45vh] flex-none overflow-hidden group">
          <div className="absolute inset-0 bg-black z-0" />
          
          <img src={rock.imageUrl} className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-700" />
@@ -219,6 +225,14 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
             className="absolute top-safe mt-6 left-6 p-3 rounded-full bg-black/40 border border-white/10 backdrop-blur-md hover:bg-white/10 hover:border-white/30 transition-all z-20 group/back"
          >
             <ArrowLeft className="w-5 h-5 text-white group-hover/back:-translate-x-1 transition-transform" />
+         </button>
+
+         {/* Compare Button */}
+         <button
+            onClick={handleCompareClick}
+            className="absolute top-safe mt-6 right-6 p-3 rounded-full bg-purple-900/40 border border-purple-500/50 backdrop-blur-md hover:bg-purple-800/50 hover:border-purple-300/50 transition-all z-20 group/compare"
+         >
+            <GitCompare className="w-5 h-5 text-purple-400 group-hover/compare:scale-110 transition-transform" />
          </button>
 
          {/* Title Block */}
@@ -265,132 +279,84 @@ export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete
          </div>
       </div>
 
-      {/* --- ANALYSIS CONTENT --- */}
-      <div className="p-6 space-y-8 relative z-10 -mt-6">
-         
-         {/* Description Console */}
-         <div className="bg-[#0a0f18]/90 backdrop-blur-xl p-6 rounded-2xl border border-white/10 shadow-2xl relative overflow-hidden group">
-             <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 via-purple-500 to-indigo-500" />
-             <div className="absolute -right-10 -top-10 text-white/5 rotate-12 group-hover:rotate-0 transition-transform duration-700">
-                 <Hexagon size={120} />
-             </div>
-             
-             <div className="relative z-10">
-                 <h3 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                    <ScanLine size={12} /> Analysis Log
-                 </h3>
-                 <p className="text-gray-300 text-sm leading-relaxed font-light">
-                    {rock.description}
-                 </p>
-             </div>
-         </div>
-
-         {/* Stat Modules */}
-         <div className="grid grid-cols-2 gap-4">
-            <div 
-                onMouseEnter={() => playSound('hover')}
-                className="bg-black/40 backdrop-blur border border-white/10 p-4 rounded-xl relative overflow-hidden group hover:border-indigo-500/50 transition-colors"
-            >
-               <div className="absolute inset-0 bg-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-               <div className="relative z-10">
-                   <div className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mb-1">Rarity Index</div>
-                   <div className="flex items-end gap-2 mb-3">
-                       <div className="text-3xl font-bold text-white">{rock.rarityScore}</div>
-                       <div className="text-xs text-gray-500 mb-1">/100</div>
-                   </div>
-                   {/* Animated Bar */}
-                   <div className="h-1.5 bg-gray-800 w-full rounded-full overflow-hidden">
-                      <div className="h-full bg-indigo-500 shadow-[0_0_10px_#6366f1] transition-all duration-1000" style={{ width: `${rock.rarityScore}%` }} />
-                   </div>
-               </div>
-            </div>
-
-            <div 
-                onMouseEnter={() => playSound('hover')}
-                className="bg-black/40 backdrop-blur border border-white/10 p-4 rounded-xl relative overflow-hidden group hover:border-cyan-500/50 transition-colors"
-            >
-               <div className="absolute inset-0 bg-cyan-500/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-               <div className="relative z-10">
-                   <div className="text-[9px] text-gray-500 font-mono uppercase tracking-widest mb-1">Hardness</div>
-                   <div className="flex items-end gap-2 mb-3">
-                       <div className="text-3xl font-bold text-white">{rock.hardness}</div>
-                       <div className="text-xs text-gray-500 mb-1">/10</div>
-                   </div>
-                   <div className="h-1.5 bg-gray-800 w-full rounded-full overflow-hidden">
-                      <div className="h-full bg-cyan-500 shadow-[0_0_10px_#06b6d4] transition-all duration-1000" style={{ width: `${rock.hardness * 10}%` }} />
-                   </div>
-               </div>
-            </div>
-         </div>
-
-         {/* 3D Model Viewer Container */}
-         <div className="space-y-3">
-            <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em] flex items-center gap-2">
-                <Box className="w-3 h-3 text-cyan-400" /> Digital Specimen
-            </h3>
-            <div className="w-full h-80 rounded-2xl overflow-hidden border border-white/10 relative bg-[#080c14] shadow-inner cursor-crosshair">
-                {/* HUD Corners */}
-                <div className="absolute top-2 left-2 w-4 h-4 border-t border-l border-white/20 rounded-tl pointer-events-none z-30" />
-                <div className="absolute top-2 right-2 w-4 h-4 border-t border-r border-white/20 rounded-tr pointer-events-none z-30" />
-                <div className="absolute bottom-2 left-2 w-4 h-4 border-b border-l border-white/20 rounded-bl pointer-events-none z-30" />
-                <div className="absolute bottom-2 right-2 w-4 h-4 border-b border-r border-white/20 rounded-br pointer-events-none z-30" />
-                
-                <Suspense fallback={
-                    <div className="flex flex-col items-center justify-center w-full h-full text-cyan-400">
-                        <Loader2 className="w-8 h-8 animate-spin mb-2" />
-                        <span className="text-xs font-mono uppercase tracking-wider animate-pulse">Constructing Voxel Matrix...</span>
-                    </div>
-                }>
-                    <Rock3DViewer modelUrl={threeDModelUrl} rock={rock} />
-                </Suspense>
-            </div>
-            <p className="text-[9px] text-gray-600 text-center uppercase tracking-wide font-mono">
-              // INTERACTIVE: HOVER DATA POINTS FOR ANALYSIS
+      {/* --- CONTENT BODY --- */}
+      <div className="flex-1 p-6 space-y-8 relative z-10">
+        
+        {/* 1. Description */}
+        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 relative overflow-hidden backdrop-blur-md">
+            <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500" />
+            <Quote className="w-8 h-8 text-cyan-500/20 absolute top-4 right-4" />
+            <p className="text-gray-300 leading-relaxed font-light text-sm">
+                {rock.description}
             </p>
-         </div>
+        </div>
 
-         {rock.comparisonImageUrl && (
-            <div className="space-y-3">
-                <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.2em]">Reference Data</h3>
-                <div className="w-full h-48 rounded-2xl overflow-hidden border border-white/10 relative group">
-                    <img src={rock.comparisonImageUrl} className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-500 scale-105" />
-                    <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-transparent to-transparent pointer-events-none" />
-                    <div className="absolute top-4 left-4">
-                        <span className="flex items-center gap-2 text-[9px] font-mono text-indigo-300 tracking-wider bg-black/60 px-2 py-1 rounded border border-indigo-500/30">
-                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" /> IDEAL_SPECIMEN
-                        </span>
-                    </div>
-                </div>
+        {/* 2. 3D MODEL VIEWER (ALWAYS VISIBLE) */}
+        <div className="h-80 w-full bg-black/40 rounded-3xl border border-white/10 overflow-hidden relative shadow-2xl">
+            <div className="absolute top-4 left-6 z-10">
+                <h3 className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
+                    <Hexagon className="w-3 h-3 text-cyan-400" /> Holographic Analysis
+                </h3>
             </div>
-         )}
-         
-         <div className="bg-[#0a0f18] p-5 rounded-xl border border-amber-500/20 relative overflow-hidden">
-            <div className="absolute top-0 right-0 p-4 opacity-10">
-                <Quote size={48} className="text-amber-500" />
-            </div>
-            <div className="flex items-center gap-2 mb-2 text-amber-500/80 relative z-10">
-                <Quote className="w-4 h-4" />
-                <h3 className="text-[10px] font-bold uppercase tracking-widest">Field Note</h3>
-            </div>
-            <p className="text-gray-400 text-xs italic pl-6 border-l border-amber-500/30 relative z-10">"{rock.funFact}"</p>
-         </div>
+            <Suspense fallback={<div className="flex items-center justify-center h-full"><Loader2 className="w-8 h-8 text-cyan-500 animate-spin" /></div>}>
+                <Rock3DViewer modelUrl={threeDModelUrl} rock={rock} />
+            </Suspense>
+        </div>
 
-         {/* Action Footer */}
-         <div className="flex gap-4 pt-6 border-t border-white/5 pb-24">
+        {/* 3. Data Grid */}
+        <div className="grid grid-cols-2 gap-4">
+            <StatBox label="Hardness" value={`${rock.hardness}/10`} sub="Mohs Scale" icon={Layers} color="indigo" />
+            <StatBox label="Rarity" value={`${rock.rarityScore}%`} sub="Index" icon={Zap} color="amber" />
+            <StatBox label="Composition" value={rock.composition[0] || 'N/A'} sub="Primary" icon={Activity} color="emerald" />
+            <StatBox label="Color" value={rock.color.join(', ')} sub="Spectral" icon={ScanLine} color="pink" />
+        </div>
+
+        {/* 4. Fun Fact */}
+        {rock.funFact && (
+            <div className="p-5 bg-gradient-to-br from-indigo-900/20 to-purple-900/20 border border-indigo-500/30 rounded-2xl">
+                <h4 className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">
+                    Did you know?
+                </h4>
+                <p className="text-xs text-indigo-200 italic">
+                    "{rock.funFact}"
+                </p>
+            </div>
+        )}
+
+        {/* 5. Footer Actions */}
+        <div className="pt-8 pb-12 flex justify-center">
             <button 
-                onClick={() => { playSound('click'); navigator.share?.({ title: rock.name, text: rock.description }); }} 
-                className="flex-1 py-4 bg-gray-900 hover:bg-gray-800 border border-gray-700 hover:border-cyan-500/50 text-white rounded-xl font-mono text-xs uppercase transition-all flex items-center justify-center gap-2 tracking-wider group"
+                onClick={() => { if(window.confirm('Purge this asset?')) onDelete(rock.id); }}
+                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-red-900/10 border border-red-500/30 text-red-400 hover:bg-red-900/30 transition-all text-xs font-bold uppercase tracking-widest"
             >
-                <Share2 className="w-4 h-4 text-cyan-500 group-hover:animate-bounce" /> Encrypt & Share
+                <Trash2 className="w-4 h-4" /> Purge Asset
             </button>
-            <button 
-                onClick={() => { playSound('purge'); onDelete(rock.id); }} 
-                className="flex-1 py-4 border border-red-900/50 text-red-400 hover:bg-red-900/10 hover:border-red-500/50 hover:text-red-300 rounded-xl font-mono text-xs uppercase transition-all flex items-center justify-center gap-2 tracking-wider group"
-            >
-                <FileWarning className="w-4 h-4 group-hover:animate-pulse" /> Purge Asset
-            </button>
-         </div>
+        </div>
+
       </div>
     </div>
   );
+};
+
+// -- MICRO COMPONENT: STAT BOX --
+const StatBox: React.FC<{ label: string; value: string; sub: string; icon: any; color: string }> = ({ label, value, sub, icon: Icon, color }) => {
+    const colorClasses: any = {
+        indigo: 'text-indigo-400 border-indigo-500/30',
+        amber: 'text-amber-400 border-amber-500/30',
+        emerald: 'text-emerald-400 border-emerald-500/30',
+        pink: 'text-pink-400 border-pink-500/30',
+    };
+
+    return (
+        <div className={`p-4 bg-white/5 border ${colorClasses[color]} rounded-xl relative overflow-hidden group`}>
+            <Icon className={`w-5 h-5 mb-2 ${colorClasses[color].split(' ')[0]} opacity-80`} />
+            <div className="text-xl font-bold text-white tracking-tight leading-none mb-1 truncate">{value}</div>
+            <div className="flex justify-between items-end">
+                <span className="text-[9px] text-gray-500 uppercase tracking-widest font-bold">{label}</span>
+                <span className="text-[8px] font-mono text-gray-600">{sub}</span>
+            </div>
+            {/* Hover Shine */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-white/0 via-white/5 to-white/0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+        </div>
+    );
 };

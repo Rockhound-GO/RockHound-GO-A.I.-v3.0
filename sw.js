@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rockhound-neural-v1';
+const CACHE_NAME = 'rockhound-neural-v2';
 
 // Critical assets required for the "Zero-Latency" boot sequence
 const STATIC_ASSETS = [
@@ -41,6 +41,14 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
+  // --- BYPASS STRATEGY ---
+  // Critical: Do not intercept API or Auth requests. 
+  // This allows the browser to handle CORS, credentials, and network errors natively.
+  if (url.pathname.startsWith('/api') || url.pathname.startsWith('/auth')) {
+    return;
+  }
+
+  // --- ASSET STRATEGY ---
   // High-Priority Asset Strategy (Cache First -> Network Fallback)
   // This ensures 3D models, textures, and heavy media load instantly.
   if (
@@ -52,6 +60,7 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('res.cloudinary.com') || 
     url.hostname.includes('framerusercontent.com') || 
     url.hostname.includes('videos.pexels.com') || 
+    url.hostname.includes('esm.sh') ||
     url.pathname.endsWith('.glb') || 
     url.pathname.endsWith('.bin') || 
     url.pathname.endsWith('.png') ||
@@ -87,7 +96,8 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // API & Dynamic Data Strategy (Network First -> Cache Fallback could be added here, currently Network Only)
+  // --- FALLBACK STRATEGY ---
+  // Network First -> Cache Fallback for everything else
   event.respondWith(
     fetch(event.request).catch(() => {
       return caches.match(event.request);

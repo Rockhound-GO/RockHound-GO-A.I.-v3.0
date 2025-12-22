@@ -177,17 +177,19 @@ export const generateCloverDialogue = async (
   return retryWithExponentialBackoff(async () => {
     try {
       let prompt = `Context: User ${contextData.username}, Level ${contextData.level}. Intent: ${intent}.`;
-      let mood = "ANALYTICAL";
+      
+      // Allow overriding mood from contextData, otherwise default to ANALYTICAL
+      let mood = contextData.mood || "ANALYTICAL";
 
       if (intent === 'INTRO') {
         prompt += " Generate boot-up sequence dialogue. Welcome the user to RockHound GO.";
-        mood = "PROFESSIONAL";
+        if (!contextData.mood) mood = "PROFESSIONAL";
       } else if (intent === 'REWARD') {
         prompt += " User just leveled up or found a rare item. Congratulate them.";
-        mood = "EXCITED";
+        if (!contextData.mood) mood = "EXCITED";
       } else if (intent === 'CHALLENGE') {
         prompt += " Assign a new geological mission.";
-        mood = "SERIOUS";
+        if (!contextData.mood) mood = "SERIOUS";
       }
 
       const response = await ai.models.generateContent({

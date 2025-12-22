@@ -7,7 +7,7 @@ const CORE_MODULES = [
 ];
 
 export const useVisitedViews = () => {
-  const [visitedViews, setVisitedViews] = useState<Set<string>>(new Set());
+  const [visitedViews, setVisitedViews] = useState<Set<string>>(new Set<string>());
   const [explorationProgress, setExplorationProgress] = useState(0);
 
   // Initialize & Decrypt
@@ -24,19 +24,22 @@ export const useVisitedViews = () => {
       if (encryptedLog) {
         try {
           // Decrypt the logs
-          data = JSON.parse(atob(encryptedLog));
+          // Fix: Assert the type of data parsed from localStorage to `string[]`
+          data = JSON.parse(atob(encryptedLog)) as string[];
         } catch (e) {
           console.warn("Neural Map data corruption detected. Re-initializing sector scan.");
         }
       } else if (legacyLog) {
         // Auto-Migrate old users to new system
         console.log("Migrating legacy exploration data...");
-        data = JSON.parse(legacyLog);
+        // Fix: Assert the type of data parsed from localStorage to `string[]`
+        data = JSON.parse(legacyLog) as string[];
         localStorage.setItem('ROCKHOUND_NEURAL_MAP', btoa(JSON.stringify(data)));
         localStorage.removeItem('visited_views'); // Purge old data
       }
 
-      const set = new Set(data);
+      // Fix: Explicitly type the Set constructor for clarity and robustness
+      const set = new Set<string>(data);
       setVisitedViews(set);
       calculateProgress(set);
 
@@ -55,6 +58,7 @@ export const useVisitedViews = () => {
   const markViewVisited = useCallback((view: string) => {
     setVisitedViews(prev => {
       if (!prev.has(view)) {
+        // Fix: Explicitly type the Set constructor to ensure Set<string>
         const newSet = new Set<string>(prev);
         newSet.add(view);
         
@@ -75,7 +79,7 @@ export const useVisitedViews = () => {
 
   const resetExplorationData = useCallback(() => {
     localStorage.removeItem('ROCKHOUND_NEURAL_MAP');
-    setVisitedViews(new Set());
+    setVisitedViews(new Set<string>());
     setExplorationProgress(0);
   }, []);
 

@@ -1,58 +1,100 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
-import { X, Camera, Zap, Box, BarChart2, BookOpen, ChevronRight, Scan, ShieldCheck } from 'lucide-react';
+import { X, Camera, Zap, Box, ShieldCheck, Check, Target, Activity, Scan, Loader2, Music, Music2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
-// -- AUDIO ENGINE (Local) --
-const useGuideSound = () => {
+// -- PROCEDURAL LO-FI BEAT ENGINE --
+const useTacticalBeats = () => {
   const audioCtx = useRef<AudioContext | null>(null);
+  const isPlaying = useRef(false);
+  const stepCount = useRef(0);
 
-  const playSound = useCallback((type: 'open' | 'hover' | 'click' | 'confirm') => {
+  const init = () => {
     if (!audioCtx.current) {
       audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
-    const ctx = audioCtx.current;
-    if (ctx.state === 'suspended') ctx.resume();
+    if (audioCtx.current.state === 'suspended') audioCtx.current.resume();
+  };
 
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
+  const playKick = (time: number) => {
+    if (!audioCtx.current) return;
+    const osc = audioCtx.current.createOscillator();
+    const gain = audioCtx.current.createGain();
+    osc.frequency.setValueAtTime(150, time);
+    osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.5);
+    gain.gain.setValueAtTime(0.3, time);
+    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.5);
+    osc.connect(gain).connect(audioCtx.current.destination);
+    osc.start(time);
+    osc.stop(time + 0.5);
+  };
 
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(ctx.destination);
+  const playSnare = (time: number) => {
+    if (!audioCtx.current) return;
+    const bufSize = audioCtx.current.sampleRate * 0.1;
+    const buffer = audioCtx.current.createBuffer(1, bufSize, audioCtx.current.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = Math.random() * 2 - 1;
+    const noise = audioCtx.current.createBufferSource();
+    noise.buffer = buffer;
+    const filter = audioCtx.current.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 1000;
+    const gain = audioCtx.current.createGain();
+    gain.gain.setValueAtTime(0.1, time);
+    gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+    noise.connect(filter).connect(gain).connect(audioCtx.current.destination);
+    noise.start(time);
+  };
 
-    const now = ctx.currentTime;
+  const playFX = (type: 'lock' | 'unlock' | 'success') => {
+    init();
+    if (!audioCtx.current) return;
+    const now = audioCtx.current.currentTime;
+    const osc = audioCtx.current.createOscillator();
+    const gain = audioCtx.current.createGain();
+    osc.connect(gain).connect(audioCtx.current.destination);
 
-    if (type === 'open') {
-        osc.type = 'sine';
+    if (type === 'lock') {
+        osc.type = 'square';
         osc.frequency.setValueAtTime(200, now);
-        osc.frequency.linearRampToValueAtTime(600, now + 0.3);
-        gain.gain.setValueAtTime(0, now);
-        gain.gain.linearRampToValueAtTime(0.1, now + 0.1);
-        gain.gain.linearRampToValueAtTime(0, now + 0.3);
-        osc.start(now);
-        osc.stop(now + 0.3);
-    } else if (type === 'hover') {
-        osc.type = 'triangle';
-        osc.frequency.setValueAtTime(400, now);
-        osc.frequency.exponentialRampToValueAtTime(600, now + 0.05);
-        gain.gain.setValueAtTime(0.02, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-        osc.start(now);
-        osc.stop(now + 0.05);
-    } else if (type === 'confirm') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(100, now);
-        osc.frequency.linearRampToValueAtTime(50, now + 0.3);
-        filter.frequency.setValueAtTime(1000, now);
-        filter.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+        osc.frequency.linearRampToValueAtTime(100, now + 0.1);
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.linearRampToValueAtTime(0, now + 0.1);
+    } else {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, now);
+        osc.frequency.exponentialRampToValueAtTime(440, now + 0.2);
         gain.gain.setValueAtTime(0.1, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-        osc.start(now);
-        osc.stop(now + 0.3);
     }
-  }, []);
+    osc.start();
+    osc.stop(now + 0.2);
+  };
 
-  return playSound;
+  const startBeat = () => {
+    init();
+    if (isPlaying.current) return;
+    isPlaying.current = true;
+    const loop = () => {
+      if (!isPlaying.current || !audioCtx.current) return;
+      const now = audioCtx.current.currentTime;
+      const beatLen = 0.5; // 120 BPM
+      
+      // Kick on 1 and 3
+      if (stepCount.current % 4 === 0) playKick(now);
+      // Snare on 2 and 4
+      if (stepCount.current % 4 === 2) playSnare(now);
+      
+      stepCount.current++;
+      setTimeout(loop, beatLen * 1000);
+    };
+    loop();
+  };
+
+  const stopBeat = () => {
+    isPlaying.current = false;
+  };
+
+  return { startBeat, stopBeat, playFX };
 };
 
 interface GuideProps {
@@ -61,146 +103,189 @@ interface GuideProps {
 
 export const Guide: React.FC<GuideProps> = ({ onClose }) => {
   const [activeStep, setActiveStep] = useState(0);
-  const playSound = useGuideSound();
-  const [isVisible, setIsVisible] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const { startBeat, stopBeat, playFX } = useTacticalBeats();
+  
+  // Drill States
+  const [drillProgress, setDrillProgress] = useState(0);
+  const [lockPosition, setLockPosition] = useState({ x: 50, y: 50 });
+  const [drillCompleted, setDrillCompleted] = useState<Set<number>>(new Set());
 
   useEffect(() => {
-    setIsVisible(true);
-    playSound('open');
-  }, []);
+    if (!isMuted) startBeat();
+    return () => stopBeat();
+  }, [isMuted]);
 
-  const handleClose = () => {
-    setIsVisible(false);
-    playSound('confirm');
-    setTimeout(onClose, 300);
+  // Optical Lock Logic
+  useEffect(() => {
+    if (activeStep === 0 && !drillCompleted.has(0)) {
+        const interval = setInterval(() => {
+            setLockPosition({ 
+                x: 20 + Math.random() * 60, 
+                y: 20 + Math.random() * 60 
+            });
+        }, 1200);
+        return () => clearInterval(interval);
+    }
+  }, [activeStep, drillCompleted]);
+
+  const handleDrillSuccess = (step: number) => {
+    playFX('success');
+    setDrillCompleted(prev => new Set(prev).add(step));
+    if (step < 2) {
+        setTimeout(() => setActiveStep(step + 1), 800);
+    }
   };
 
   const steps = [
     {
-      id: '01',
-      title: 'TARGET ACQUISITION',
-      desc: 'Deploy the optical sensor (Camera) to scan geological assets in the field. Ensure optimal lighting conditions for accurate identification.',
-      icon: Camera,
-      color: 'text-cyan-400',
-      bg: 'bg-cyan-500/10',
-      border: 'border-cyan-500/30'
+      title: 'CALIBRATE_OPTICS',
+      desc: 'Lock onto the spectral ghost to verify sensor alignment.',
+      icon: Target,
+      color: 'cyan',
     },
     {
-      id: '02',
-      title: 'NEURAL ANALYSIS',
-      desc: 'Engage the Gemini AI Core to cross-reference visual data against the global mineral database. Analysis provides type, rarity, and chemical composition.',
-      icon: Zap,
-      color: 'text-purple-400',
-      bg: 'bg-purple-500/10',
-      border: 'border-purple-500/30'
+      title: 'NEURAL_FILTER',
+      desc: 'Scrub through the data stream to isolate mineral DNA.',
+      icon: Activity,
+      color: 'purple',
     },
     {
-      id: '03',
-      title: 'SECURE STORAGE',
-      desc: 'Archive identified specimens into your personal Vault. Organize your collection and review holographic models of your finds.',
+      title: 'VAULT_UPLINK',
+      desc: 'Synchronize rhythmic handshake to secure archive access.',
       icon: Box,
-      color: 'text-emerald-400',
-      bg: 'bg-emerald-500/10',
-      border: 'border-emerald-500/30'
-    },
-    {
-      id: '04',
-      title: 'CAREER PROGRESSION',
-      desc: 'Monitor your operator level via the Stats dashboard. Earn XP by discovering rare minerals and completing field challenges.',
-      icon: BarChart2,
-      color: 'text-amber-400',
-      bg: 'bg-amber-500/10',
-      border: 'border-amber-500/30'
+      color: 'emerald',
     }
   ];
 
+  const allDone = drillCompleted.size === 3;
+
   return (
-    <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 transition-all duration-300 ${isVisible ? 'opacity-100 backdrop-blur-md bg-black/60' : 'opacity-0 backdrop-blur-none bg-transparent'}`}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl font-mono overflow-hidden">
       <style>{`
-        @keyframes slide-up-fade { 0% { opacity: 0; transform: translateY(20px); } 100% { opacity: 1; transform: translateY(0); } }
-        .guide-card { transform-style: preserve-3d; perspective: 1000px; }
+        @keyframes vhs-flicker { 0% { opacity: 0.8; } 5% { opacity: 0.5; } 10% { opacity: 0.8; } 15% { opacity: 0.2; } 20% { opacity: 0.8; } }
+        @keyframes scanline-move { 0% { transform: translateY(-100%); } 100% { transform: translateY(100%); } }
+        .glitch-bg { background: repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 1px, transparent 1px, transparent 2px); }
+        .lofi-pulse { animation: pulse 0.5s ease-in-out infinite; }
       `}</style>
 
-      <div className={`w-full max-w-lg bg-[#050a10]/95 border border-white/10 rounded-3xl shadow-2xl overflow-hidden guide-card transition-all duration-300 ${isVisible ? 'scale-100' : 'scale-95'}`}>
-        
-        {/* Holographic Header */}
-        <div className="relative p-6 border-b border-white/5 overflow-hidden">
-            <div className="absolute inset-0 bg-gradient-to-r from-indigo-900/20 via-transparent to-indigo-900/20" />
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-cyan-500 to-transparent opacity-50" />
-            
-            <div className="relative flex justify-between items-start">
-                <div>
-                    <h2 className="text-xl font-bold text-white tracking-widest flex items-center gap-3 font-mono">
-                        <BookOpen className="w-5 h-5 text-cyan-500" />
-                        FIELD_MANUAL
-                    </h2>
-                    <p className="text-[10px] text-gray-400 font-mono mt-1 tracking-[0.2em] uppercase">
-                        Operator Orientation v3.0
-                    </p>
-                </div>
-                <button 
-                    onClick={handleClose}
-                    className="p-2 rounded-full hover:bg-white/10 text-gray-500 hover:text-white transition-colors"
-                >
-                    <X className="w-5 h-5" />
-                </button>
+      {/* Rhythmic Background */}
+      <div className="absolute inset-0 glitch-bg opacity-20 pointer-events-none" />
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+          <div className="absolute top-0 left-0 w-full h-full bg-cyan-500/5 animate-[vhs-flicker_4s_infinite]" />
+          <div className="absolute top-0 left-0 w-full h-2 bg-white/10 animate-[scanline-move_3s_linear_infinite]" />
+      </div>
+
+      <div className="w-full max-w-lg bg-[#050a10] border-2 border-white/10 rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden relative">
+        {/* Header HUD */}
+        <div className="p-6 border-b border-white/5 bg-white/5 flex justify-between items-center">
+            <div className="flex items-center gap-3">
+                <div className={`w-3 h-3 rounded-full bg-red-500 animate-pulse`} />
+                <h2 className="text-sm font-black text-white tracking-widest">DRILL_PROTOCOL_v4.5</h2>
             </div>
-        </div>
-
-        {/* Content Modules */}
-        <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto no-scrollbar">
-            {steps.map((step, index) => (
-                <div 
-                    key={step.id}
-                    onMouseEnter={() => playSound('hover')}
-                    className={`group relative p-4 rounded-xl border ${step.border} bg-black/40 hover:bg-white/5 transition-all duration-300 cursor-default hover:scale-[1.02]`}
-                    style={{ animation: `slide-up-fade 0.5s ease-out backwards ${index * 0.1}s` }}
-                >
-                    {/* Hover Glow */}
-                    <div className={`absolute inset-0 ${step.bg} opacity-0 group-hover:opacity-20 transition-opacity rounded-xl blur-lg`} />
-                    
-                    <div className="relative flex gap-4">
-                        <div className={`w-12 h-12 rounded-lg ${step.bg} flex items-center justify-center flex-none border ${step.border}`}>
-                            <step.icon className={`w-6 h-6 ${step.color}`} />
-                        </div>
-                        <div className="flex-1">
-                            <div className="flex justify-between items-center mb-1">
-                                <h3 className={`font-bold text-sm text-gray-200 tracking-wider font-mono group-hover:text-white transition-colors`}>
-                                    {step.id} // {step.title}
-                                </h3>
-                                <ChevronRight className={`w-4 h-4 text-gray-600 group-hover:translate-x-1 transition-transform ${step.color}`} />
-                            </div>
-                            <p className="text-xs text-gray-400 leading-relaxed font-sans border-l-2 border-white/5 pl-3 group-hover:border-white/20 transition-colors">
-                                {step.desc}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            ))}
-        </div>
-
-        {/* Tactical Footer */}
-        <div className="p-6 border-t border-white/5 bg-[#080c14]">
-            <button 
-                onClick={handleClose}
-                onMouseEnter={() => playSound('hover')}
-                className="w-full py-4 relative group overflow-hidden rounded-xl"
-            >
-                <div className="absolute inset-0 bg-indigo-600 transition-all group-hover:bg-indigo-500" />
-                <div className="absolute inset-0 bg-[repeating-linear-gradient(45deg,transparent,transparent_10px,rgba(0,0,0,0.1)_10px,rgba(0,0,0,0.1)_20px)] opacity-30" />
-                
-                <div className="relative flex items-center justify-center gap-3 text-white font-bold tracking-[0.2em] text-sm uppercase">
-                    <ShieldCheck className="w-5 h-5" />
-                    <span>Acknowledge Protocol</span>
-                </div>
+            <button onClick={() => setIsMuted(!isMuted)} className="p-2 text-gray-500 hover:text-cyan-400">
+                {isMuted ? <Music2 size={16} /> : <Music size={16} className="lofi-pulse" />}
             </button>
-            <div className="text-center mt-3">
-                <span className="text-[9px] text-gray-600 font-mono flex items-center justify-center gap-2">
-                    <Scan className="w-3 h-3" /> SECURITY CLEARANCE VERIFIED
-                </span>
+        </div>
+
+        {/* Tactical Drill Area */}
+        <div className="p-8 space-y-8">
+            {/* Step Indicators */}
+            <div className="flex gap-2">
+                {steps.map((_, i) => (
+                    <div 
+                        key={i} 
+                        className={`h-1.5 flex-1 rounded-full transition-all duration-500 ${
+                            i === activeStep ? 'bg-cyan-400 shadow-[0_0_10px_#22d3ee]' : 
+                            drillCompleted.has(i) ? 'bg-emerald-500' : 'bg-white/10'
+                        }`} 
+                    />
+                ))}
+            </div>
+
+            {/* Main Stage */}
+            <div className="relative aspect-video bg-black/40 rounded-2xl border border-white/5 overflow-hidden flex flex-col items-center justify-center">
+                {activeStep === 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="text-[10px] text-gray-600 absolute top-4 font-mono">EYE_TRACKING_MODE</div>
+                        <button 
+                            onClick={() => { playFX('lock'); handleDrillSuccess(0); }}
+                            className="absolute w-12 h-12 border-2 border-cyan-500/50 rounded-lg flex items-center justify-center transition-all hover:scale-125 group"
+                            style={{ left: `${lockPosition.x}%`, top: `${lockPosition.y}%`, transform: 'translate(-50%, -50%)' }}
+                        >
+                            <Target className="text-cyan-400 animate-pulse" size={24} />
+                            <div className="absolute inset-0 border border-cyan-400 animate-ping rounded-lg opacity-20" />
+                        </button>
+                    </div>
+                )}
+
+                {activeStep === 1 && (
+                    <div className="w-full h-full p-8 flex flex-col items-center justify-center space-y-6">
+                        <div className="w-full h-8 bg-gray-900 rounded border border-white/10 relative overflow-hidden">
+                            <div className="absolute inset-0 bg-purple-500/20 animate-pulse" />
+                            <input 
+                                type="range" 
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-ew-resize"
+                                onChange={(e) => {
+                                    setDrillProgress(parseInt(e.target.value));
+                                    if (parseInt(e.target.value) > 95) handleDrillSuccess(1);
+                                }}
+                            />
+                            <div className="h-full bg-purple-500 transition-all duration-100" style={{ width: `${drillProgress}%` }} />
+                        </div>
+                        <div className="text-[10px] text-purple-400 font-bold animate-pulse">SCRUB_STREAM_TO_ISOLATE</div>
+                    </div>
+                )}
+
+                {activeStep === 2 && (
+                    <div className="flex flex-col items-center gap-6">
+                        <div className="relative">
+                            <Box className="w-16 h-16 text-emerald-400 lofi-pulse" />
+                            <div className="absolute inset-0 bg-emerald-400/20 blur-xl rounded-full" />
+                        </div>
+                        <button 
+                            onClick={() => handleDrillSuccess(2)}
+                            className="px-8 py-3 bg-emerald-600 hover:bg-emerald-500 text-black font-black uppercase tracking-widest rounded-xl transition-all active:scale-95"
+                        >
+                            COMMIT_TO_VAULT
+                        </button>
+                    </div>
+                )}
+
+                {/* Step Text Overlay */}
+                <div className="absolute bottom-4 left-6 right-6">
+                    <h3 className="text-xs font-black text-white uppercase tracking-widest">{steps[activeStep].title}</h3>
+                    <p className="text-[10px] text-gray-400 mt-1">{steps[activeStep].desc}</p>
+                </div>
             </div>
         </div>
 
+        {/* Footer Actions */}
+        <div className="p-6 bg-white/5 border-t border-white/5">
+            <button 
+                onClick={allDone ? onClose : () => {}}
+                className={`w-full py-4 rounded-2xl font-black text-sm tracking-[0.2em] transition-all flex items-center justify-center gap-3
+                    ${allDone 
+                        ? 'bg-gradient-to-r from-cyan-600 to-indigo-600 text-white shadow-lg shadow-cyan-500/20 hover:scale-[1.02]' 
+                        : 'bg-gray-800 text-gray-500 cursor-not-allowed opacity-50'
+                    }`}
+            >
+                {allDone ? (
+                    <>
+                        <ShieldCheck size={18} />
+                        ENTER_COHABITATION
+                    </>
+                ) : (
+                    <>
+                        <Loader2 size={18} className="animate-spin" />
+                        COMPLETING_DRILLS... ({drillCompleted.size}/3)
+                    </>
+                )}
+            </button>
+            <p className="text-[9px] text-center text-gray-600 mt-4 uppercase tracking-[0.3em]">
+                Secure Uplink Established // CLOVER v4.5
+            </p>
+        </div>
       </div>
     </div>
   );

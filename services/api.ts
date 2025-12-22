@@ -4,9 +4,191 @@ import { Rock, User, Badge, OperatorStats } from '../types';
 export type { User, Badge, OperatorStats };
 
 // --- NEURAL NETWORK CONFIGURATION ---
-// Set FALSE for production deployment to real server
+// SYSTEM OVERRIDE: Set to TRUE to bypass "Failed to fetch" errors. 
+// This enables a full local simulation of the backend.
 const USE_MOCK_SERVER = true; 
-const API_URL = 'http://localhost:3000'; 
+
+// SAFE ACCESS to process.env for frontend
+const getEnvVar = (key: string) => {
+  if (typeof window !== 'undefined' && (window as any).process?.env) {
+    return (window as any).process.env[key];
+  }
+  return undefined;
+};
+
+const API_URL: string = getEnvVar('BACKEND_API_URL') || 'http://localhost:3000'; 
+
+if (!USE_MOCK_SERVER) {
+    console.log('NEURAL LINK TARGET:', API_URL);
+} else {
+    console.log('NEURAL LINK TARGET: OFFLINE SIMULATION (MOCK_MODE)');
+}
+
+// A helper function to create the full API endpoint path
+const createUrl = (path: string): string => {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${API_URL}${normalizedPath}`;
+};
+
+// --- MOCK DATABASE ENGINE ---
+// Simulates a full backend when the node server isn't running.
+// Data is persisted to localStorage so it survives refreshes.
+
+const mockDelay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+const mockGet = <T>(key: string, defaultVal: T): T => {
+    try {
+        const item = localStorage.getItem(`mock_db_${key}`);
+        return item ? JSON.parse(item) : defaultVal;
+    } catch { return defaultVal; }
+};
+
+const mockSet = (key: string, val: any) => {
+    localStorage.setItem(`mock_db_${key}`, JSON.stringify(val));
+};
+
+const MockDB = {
+    // Mock Methods
+    async register(username: string, email: string, password: string): Promise<User> {
+        await mockDelay(800);
+        const users = mockGet<User[]>('users', []);
+        if (users.find((u: any) => u.email === email)) throw new Error('IDENTITY CONFLICT: Email already registered');
+        
+        const newUser: User = {
+            id: crypto.randomUUID(),
+            username,
+            email,
+            // In a real app, password would be hashed. In mock, we store as is (insecure but functional for demo)
+            xp: 0,
+            level: 1,
+            rankTitle: 'Novice Scout',
+            createdAt: new Date().toISOString(),
+            isAdmin: users.length === 0, // First user is admin
+            operatorStats: { 
+                totalScans: 0, 
+                distanceTraveled: 0, 
+                uniqueSpeciesFound: 0, 
+                legendaryFinds: 0, 
+                scanStreak: 0,
+                highestRarityFound: 0 
+            }
+        } as any;
+        // Store password separately for login check
+        (newUser as any).password = password; 
+        
+        users.push(newUser);
+        mockSet('users', users);
+        return newUser;
+    },
+
+    async login(email: string, password: string): Promise<User> {
+        await mockDelay(600);
+        const users = mockGet<any[]>('users', []);
+        const user = users.find(u => u.email === email && u.password === password);
+        if (!user) throw new Error('ACCESS DENIED: Invalid credentials');
+        
+        // Update last login
+        user.lastLogin = new Date().toISOString();
+        const userIndex = users.findIndex(u => u.id === user.id);
+        users[userIndex] = user;
+        mockSet('users', users);
+
+        return user;
+    },
+
+    async updateProfile(id: string, updates: Partial<User>): Promise<User> {
+        await mockDelay(500);
+        const users = mockGet<User[]>('users', []);
+        const index = users.findIndex(u => u.id === id);
+        if (index === -1) throw new Error('USER NOT FOUND');
+        
+        const updatedUser = { ...users[index], ...updates };
+        users[index] = updatedUser;
+        mockSet('users', users);
+        return updatedUser;
+    },
+
+    async getRocks(userId: string): Promise<Rock[]> {
+        await mockDelay(400);
+        const rocks = mockGet<Rock[]>('rocks', []);
+        return rocks.filter(r => r.userId === userId).sort((a, b) => b.dateFound - a.dateFound);
+    },
+
+    async addRock(rock: Rock): Promise<{ rock: Rock, userStats: any }> {
+        await mockDelay(800);
+        const rocks = mockGet<Rock[]>('rocks', []);
+        rocks.push(rock);
+        mockSet('rocks', rocks);
+
+        // Gamification Logic
+        const users = mockGet<User[]>('users', []);
+        const userIndex = users.findIndex(u => u.id === rock.userId);
+        let userStats = { xp: 0, level: 1, xpGained: 0, leveledUp: false };
+        
+        if (userIndex !== -1) {
+            const user = users[userIndex];
+            const xpGained = 50 + (rock.rarityScore || 0);
+            const newXp = (user.xp || 0) + xpGained;
+            const newLevel = Math.floor(newXp / 100) + 1;
+            const leveledUp = newLevel > (user.level || 1);
+            
+            user.xp = newXp;
+            user.level = newLevel;
+            
+            // Update stats
+            if (!user.operatorStats) {
+                user.operatorStats = { 
+                    totalScans: 0, 
+                    distanceTraveled: 0, 
+                    uniqueSpeciesFound: 0, 
+                    legendaryFinds: 0, 
+                    scanStreak: 0,
+                    highestRarityFound: 0
+                };
+            }
+            user.operatorStats.totalScans++;
+            if (rock.rarityScore > 90) user.operatorStats.legendaryFinds++;
+            if (rock.rarityScore > (user.operatorStats.highestRarityFound || 0)) {
+                user.operatorStats.highestRarityFound = rock.rarityScore;
+            }
+            
+            users[userIndex] = user;
+            mockSet('users', users);
+            
+            userStats = { xp: newXp, level: newLevel, xpGained, leveledUp };
+        }
+        
+        return { rock, userStats };
+    },
+
+    async deleteRock(rockId: string): Promise<void> {
+        await mockDelay(300);
+        let rocks = mockGet<Rock[]>('rocks', []);
+        rocks = rocks.filter(r => r.id !== rockId);
+        mockSet('rocks', rocks);
+    },
+
+    async getAdminStats(): Promise<AdminStats> {
+        await mockDelay(500);
+        const users = mockGet<User[]>('users', []);
+        const rocks = mockGet<Rock[]>('rocks', []);
+        
+        // Mock activity data
+        const activityData = Array.from({length: 7}, (_, i) => {
+            const d = new Date();
+            d.setDate(d.getDate() - i);
+            return { _id: d.toISOString().split('T')[0], count: Math.floor(Math.random() * 10) };
+        }).reverse();
+
+        return {
+            totalUsers: users.length,
+            activeUsers: users.length, // Sim
+            totalRocks: rocks.length,
+            activityData,
+            locations: rocks.filter(r => r.location).map(r => r.location!).slice(0, 100)
+        };
+    }
+};
 
 // --- TYPES ---
 
@@ -42,49 +224,66 @@ export const api = {
     }
   },
 
+  _getToken: (): string | null => {
+    return localStorage.getItem('token');
+  },
+
+  // Generic error handler for API responses
+  async _handleResponse(res: Response): Promise<any> {
+    if (!res.ok) {
+      let errorMessage = `API Error: HTTP ${res.status}`;
+      let errorDetails: any = null;
+      try {
+        errorDetails = await res.json();
+        errorMessage = errorDetails.message || errorMessage;
+      } catch (jsonError) {
+        const textError = await res.text();
+        errorMessage = `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}. Details: ${textError.substring(0, 100)}...`;
+        console.error('Non-JSON error response from server:', textError);
+        errorDetails = { raw: textError };
+      }
+      const error = new Error(errorMessage);
+      (error as any).status = res.status;
+      (error as any).details = errorDetails;
+      throw error;
+    }
+    return res.json();
+  },
+
   // --- AUTHENTICATION PROTOCOLS ---
   
   register(username: string, email: string, password: string): Promise<User> {
     return this._withSyncStatus(this._register(username, email, password));
   },
   async _register(username: string, email: string, password: string): Promise<User> {
+    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
-      await simulateSignalLatency();
-      const users = JSON.parse(localStorage.getItem('mock_users') || '[]');
-      if (users.find((u: any) => u.email === email)) throw new Error('IDENTITY ALREADY REGISTERED');
-      if (users.find((u: any) => u.username === username)) throw new Error('CODENAME TAKEN');
-      
-      const newUser: User = { 
-        id: crypto.randomUUID(), 
-        username, 
-        email, 
-        xp: 0, 
-        level: 1,
-        rankTitle: 'Novice Scout',
-        isAdmin: users.length === 0,
-        createdAt: new Date().toISOString(),
-        operatorStats: { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0, highestRarityFound: 0, scanStreak: 0 },
-        badges: []
-      }; 
-      
-      // Store password separately in a real app, but here we just mock it
-      const storageUser = { ...newUser, password }; 
-      users.push(storageUser);
-      localStorage.setItem('mock_users', JSON.stringify(users));
-      
-      const sessionUser = { ...newUser, token: 'mock-neural-token-' + Date.now() };
-      localStorage.setItem('current_user', JSON.stringify(sessionUser));
-      return sessionUser;
-    } else {
-      const res = await fetch(`${API_URL}/auth/register`, {
+        const user = await MockDB.register(username, email, password);
+        localStorage.setItem('token', 'mock_token_' + user.id);
+        localStorage.setItem('current_user_data', JSON.stringify(user));
+        return user;
+    }
+
+    try {
+      const res = await fetch(createUrl('/auth/register'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, email, password }),
       });
-      if (!res.ok) throw new Error((await res.json()).message);
-      const data = await res.json();
+      const data = await this._handleResponse(res);
       localStorage.setItem('token', data.token);
+      localStorage.setItem('current_user_data', JSON.stringify(data.user));
       return data.user;
+    } catch (error: any) {
+      console.error("Register Network Error:", error);
+      if (
+          error.message.includes('Failed to fetch') || 
+          error.message.includes('NetworkError') ||
+          error.name === 'TypeError'
+      ) {
+        throw new Error(`SERVER OFFLINE: Unable to connect to ${API_URL}. Is the backend running?`);
+      }
+      throw error;
     }
   },
 
@@ -92,49 +291,34 @@ export const api = {
     return this._withSyncStatus(this._login(email, password));
   },
   async _login(email: string, password: string): Promise<User> {
+    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
-      await simulateSignalLatency();
-      let users = JSON.parse(localStorage.getItem('mock_users') || '[]');
+        const user = await MockDB.login(email, password);
+        localStorage.setItem('token', 'mock_token_' + user.id);
+        localStorage.setItem('current_user_data', JSON.stringify(user));
+        return user;
+    }
 
-      // --- AUTO-SEED ADMIN PROTOCOL ---
-      if (!users.find((u: any) => u.email === 'admin@rockhound.com')) {
-          const adminUser = {
-              id: 'admin-prime',
-              username: 'System_Admin',
-              email: 'admin@rockhound.com',
-              password: 'admin',
-              xp: 99999,
-              level: 99,
-              rankTitle: 'System Architect',
-              isAdmin: true,
-              avatarUrl: null,
-              createdAt: new Date().toISOString(),
-              operatorStats: { totalScans: 9000, distanceTraveled: 40000, uniqueSpeciesFound: 500, legendaryFinds: 100, highestRarityFound: 99, scanStreak: 45 },
-              badges: []
-          };
-          users.push(adminUser);
-          localStorage.setItem('mock_users', JSON.stringify(users));
-      }
-
-      const user = users.find((u: any) => u.email === email && u.password === password);
-      
-      if (!user) throw new Error('ACCESS DENIED: INVALID CREDENTIALS');
-      
-      const userObj = { ...user, token: 'mock-neural-token-' + Date.now() };
-      delete (userObj as any).password;
-      
-      localStorage.setItem('current_user', JSON.stringify(userObj));
-      return userObj;
-    } else {
-      const res = await fetch(`${API_URL}/auth/login`, {
+    try {
+      const res = await fetch(createUrl('/auth/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       });
-      if (!res.ok) throw new Error((await res.json()).message);
-      const data = await res.json();
+      const data = await this._handleResponse(res);
       localStorage.setItem('token', data.token);
+      localStorage.setItem('current_user_data', JSON.stringify(data.user));
       return data.user;
+    } catch (error: any) {
+      console.error("Login Network Error:", error);
+      if (
+          error.message.includes('Failed to fetch') || 
+          error.message.includes('NetworkError') ||
+          error.name === 'TypeError'
+      ) {
+        throw new Error(`SERVER OFFLINE: Unable to connect to ${API_URL}. Is the backend running?`);
+      }
+      throw error;
     }
   },
 
@@ -142,64 +326,39 @@ export const api = {
     return this._withSyncStatus(this._updateProfile(userData));
   },
   async _updateProfile(userData: Partial<User>): Promise<User> {
+    const token = this._getToken();
+    if (!token) throw new Error("Authentication required.");
+    const currentUser = this.getCurrentUser();
+    if (!currentUser) throw new Error("User session lost");
+
+    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
-      await simulateSignalLatency();
-      const currentUser = this.getCurrentUser();
-      if (!currentUser) throw new Error("SIGNAL LOST: AUTH REQUIRED");
-
-      const users = JSON.parse(localStorage.getItem('mock_users') || '[]');
-      const userIndex = users.findIndex((u: any) => u.id === currentUser.id);
-      
-      if (userIndex === -1) throw new Error("USER RECORD NOT FOUND");
-
-      if (userData.username || userData.email) {
-        const existing = users.find((u: any) => 
-          u.id !== currentUser.id && 
-          ((userData.username && u.username === userData.username) || (userData.email && u.email === userData.email))
-        );
-        if (existing) throw new Error("IDENTITY CONFLICT DETECTED");
-      }
-
-      const updatedUser = { ...users[userIndex], ...userData };
-      users[userIndex] = updatedUser;
-      localStorage.setItem('mock_users', JSON.stringify(users));
-      
-      const safeUser = { ...updatedUser, token: currentUser.token };
-      delete (safeUser as any).password;
-      localStorage.setItem('current_user', JSON.stringify(safeUser));
-      
-      return safeUser;
-    } else {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/user/profile`, {
-        method: 'PUT',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(userData)
-      });
-      if (!res.ok) throw new Error((await res.json()).message);
-      return res.json();
+        const updated = await MockDB.updateProfile(currentUser.id, userData);
+        localStorage.setItem('current_user_data', JSON.stringify(updated));
+        return updated;
     }
+
+    const res = await fetch(createUrl('/api/user/profile'), {
+      method: 'PUT',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(userData)
+    });
+    const updatedUser = await this._handleResponse(res);
+    localStorage.setItem('current_user_data', JSON.stringify(updatedUser)); // Update stored user data
+    return updatedUser;
   },
 
   logout: () => {
-    if (USE_MOCK_SERVER) {
-      localStorage.removeItem('current_user');
-    } else {
-      localStorage.removeItem('token');
-    }
+    localStorage.removeItem('token');
+    localStorage.removeItem('current_user_data');
   },
 
   getCurrentUser: (): User | null => {
-    if (USE_MOCK_SERVER) {
-      const stored = localStorage.getItem('current_user');
-      return stored ? JSON.parse(stored) : null;
-    } else {
-      const stored = localStorage.getItem('user_data');
-      return stored ? JSON.parse(stored) : null;
-    }
+    const stored = localStorage.getItem('current_user_data');
+    return stored ? JSON.parse(stored) : null;
   },
 
   // --- COMMAND CENTER TELEMETRY ---
@@ -208,52 +367,18 @@ export const api = {
     return this._withSyncStatus(this._getAdminStats());
   },
   async _getAdminStats(): Promise<AdminStats> {
-      if (USE_MOCK_SERVER) {
-          await simulateSignalLatency();
-          const currentUser = this.getCurrentUser();
-          if (!currentUser?.isAdmin) throw new Error("SECURITY CLEARANCE INSUFFICIENT");
+    const token = this._getToken();
+    if (!token) throw new Error("Authentication required.");
 
-          // Generate realistic sine-wave traffic pattern
-          const activityData = Array.from({ length: 7 }, (_, i) => {
-              const d = new Date();
-              d.setDate(d.getDate() - (6 - i));
-              // Sine wave peak at day 4
-              const baseLoad = 300;
-              const wave = Math.sin(i * 0.8) * 150;
-              const noise = Math.random() * 50;
-              
-              return {
-                  _id: d.toISOString().split('T')[0],
-                  count: Math.floor(baseLoad + wave + noise)
-              };
-          });
+    // MOCK MODE BYPASS
+    if (USE_MOCK_SERVER) {
+        return MockDB.getAdminStats();
+    }
 
-          // Generate clustered geolocation data
-          const locations = Array.from({ length: 150 }, () => {
-              // Cluster around a few "hubs"
-              const hubs = [{lat: 40.7, lng: -74.0}, {lat: 51.5, lng: -0.1}, {lat: 35.6, lng: 139.7}];
-              const hub = hubs[Math.floor(Math.random() * hubs.length)];
-              return {
-                  lat: hub.lat + (Math.random() - 0.5) * 10, 
-                  lng: hub.lng + (Math.random() - 0.5) * 10
-              };
-          });
-
-          return {
-              totalUsers: 14502,
-              activeUsers: 3421,
-              totalRocks: 89201,
-              activityData,
-              locations
-          };
-      } else {
-          const token = localStorage.getItem('token');
-          const res = await fetch(`${API_URL}/api/admin/stats`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          if (!res.ok) throw new Error('UPLINK FAILURE');
-          return res.json();
-      }
+    const res = await fetch(createUrl('/api/admin/stats'), {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return this._handleResponse(res);
   },
 
   // --- ARCHIVE DATA OPERATIONS ---
@@ -262,113 +387,86 @@ export const api = {
     return this._withSyncStatus(this._getRocks());
   },
   async _getRocks(): Promise<Rock[]> {
+    const token = this._getToken();
+    if (!token) throw new Error("Authentication required.");
+    const currentUser = this.getCurrentUser();
+    if (!currentUser) throw new Error("User session lost");
+
+    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
-      await simulateSignalLatency();
-      const user = this.getCurrentUser();
-      if (!user) return [];
-      const allRocks = JSON.parse(localStorage.getItem('mock_rocks') || '[]');
-      return allRocks.filter((r: any) => r.userId === user.id);
-    } else {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/rocks`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error('ARCHIVE RETRIEVAL FAILED');
-      return res.json();
+        return MockDB.getRocks(currentUser.id);
     }
+
+    const res = await fetch(createUrl('/api/rocks'), {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    return this._handleResponse(res);
   },
 
   addRock(rock: Rock): Promise<AddRockResponse> {
     return this._withSyncStatus(this._addRock(rock));
   },
   async _addRock(rock: Rock): Promise<AddRockResponse> {
+    const token = this._getToken();
+    if (!token) throw new Error("Authentication required.");
+
+    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
-      await simulateSignalLatency();
-      const user = this.getCurrentUser();
-      if (!user) throw new Error('UPLINK DISCONNECTED');
-      
-      const allRocks = JSON.parse(localStorage.getItem('mock_rocks') || '[]');
-      const newRock = { ...rock, userId: user.id };
-      allRocks.unshift(newRock);
-      localStorage.setItem('mock_rocks', JSON.stringify(allRocks));
-
-      // Gamification Logic
-      const xpGained = 50 + (rock.rarityScore || 0);
-      const users = JSON.parse(localStorage.getItem('mock_users') || '[]');
-      const userIndex = users.findIndex((u: any) => u.id === user.id);
-      
-      let newXp = (user.xp || 0) + xpGained;
-      let newLevel = Math.floor(newXp / 1000) + 1;
-      let leveledUp = newLevel > (user.level || 1);
-
-      if (userIndex !== -1) {
-        const u = users[userIndex];
-        u.xp = newXp;
-        u.level = newLevel;
-        
-        // Update Operator Stats
-        if (!u.operatorStats) u.operatorStats = { totalScans: 0, distanceTraveled: 0, uniqueSpeciesFound: 0, legendaryFinds: 0, highestRarityFound: 0, scanStreak: 0 };
-        u.operatorStats.totalScans += 1;
-        if (rock.rarityScore > 90) u.operatorStats.legendaryFinds += 1;
-        if (rock.rarityScore > (u.operatorStats.highestRarityFound || 0)) u.operatorStats.highestRarityFound = rock.rarityScore;
-        u.operatorStats.scanStreak = (u.operatorStats.scanStreak || 0) + 1;
-        
-        localStorage.setItem('mock_users', JSON.stringify(users));
-        
-        // Update session
-        const updatedUser = { ...user, xp: newXp, level: newLevel, operatorStats: u.operatorStats };
-        localStorage.setItem('current_user', JSON.stringify(updatedUser));
-      }
-
-      return {
-        rock: newRock,
-        userStats: {
-          xp: newXp,
-          level: newLevel,
-          xpGained,
-          leveledUp
+        const response = await MockDB.addRock(rock);
+        // Update local user if stats changed
+        const currentUserData = this.getCurrentUser();
+        if (currentUserData) {
+            const updatedUser = { 
+                ...currentUserData, 
+                xp: response.userStats.xp, 
+                level: response.userStats.level,
+                operatorStats: (response.rock.userId === currentUserData.id) ? {
+                    ...currentUserData.operatorStats!,
+                    totalScans: (currentUserData.operatorStats?.totalScans || 0) + 1,
+                    legendaryFinds: (response.rock.rarityScore > 90) ? (currentUserData.operatorStats?.legendaryFinds || 0) + 1 : (currentUserData.operatorStats?.legendaryFinds || 0),
+                    highestRarityFound: Math.max(currentUserData.operatorStats?.highestRarityFound || 0, response.rock.rarityScore)
+                } : currentUserData.operatorStats
+            };
+            localStorage.setItem('current_user_data', JSON.stringify(updatedUser));
         }
-      };
-    } else {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/rocks`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(rock)
-      });
-      if (!res.ok) throw new Error('UPLOAD FAILED');
-      return res.json();
+        return response;
     }
+
+    const res = await fetch(createUrl('/api/rocks'), {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify(rock)
+    });
+    const data = await this._handleResponse(res);
+    // Update user stats in local storage after a rock is added
+    const currentUserData = this.getCurrentUser();
+    if (currentUserData) {
+        const updatedUser = { ...currentUserData, xp: data.userStats.xp, level: data.userStats.level };
+        localStorage.setItem('current_user_data', JSON.stringify(updatedUser));
+    }
+    return data;
   },
   
   deleteRock(rockId: string): Promise<void> {
     return this._withSyncStatus(this._deleteRock(rockId));
   },
   async _deleteRock(rockId: string): Promise<void> {
-    if (USE_MOCK_SERVER) {
-      await simulateSignalLatency();
-      const user = this.getCurrentUser();
-      if (!user) throw new Error('UPLINK DISCONNECTED');
+    const token = this._getToken();
+    if (!token) throw new Error("Authentication required.");
 
-      let allRocks = JSON.parse(localStorage.getItem('mock_rocks') || '[]');
-      allRocks = allRocks.filter((r: any) => !(r.id === rockId && r.userId === user.id));
-      localStorage.setItem('mock_rocks', JSON.stringify(allRocks));
-    } else {
-      const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/rocks/${rockId}`, {
-        method: 'DELETE',
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error('PURGE FAILED');
+    // MOCK MODE BYPASS
+    if (USE_MOCK_SERVER) {
+        return MockDB.deleteRock(rockId);
     }
+
+    const res = await fetch(createUrl(`/api/rocks/${rockId}`), {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    // For delete, we just need to confirm res.ok
+    await this._handleResponse(res);
   }
 };
-
-// Simulate variable network latency for realism
-const simulateSignalLatency = () => new Promise(resolve => {
-    const latency = Math.floor(Math.random() * 600) + 200; // 200ms - 800ms
-    setTimeout(resolve, latency);
-});

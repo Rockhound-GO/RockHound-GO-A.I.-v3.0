@@ -1,13 +1,24 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { Environment, Float, Sparkles, Trail } from '@react-three/drei';
+import { Environment, Float, Sparkles, Trail, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
 
 interface Clover3DModelProps {
   isTalking: boolean;
   currentViseme: number; // 0-21
   audioPlaybackTime?: number;
+  mood?: string;
 }
+
+const MOOD_COLORS: Record<string, string> = {
+    'ANALYTICAL': '#22d3ee', // Cyan
+    'EXCITED': '#facc15',    // Yellow
+    'SERIOUS': '#ef4444',    // Red
+    'WITTY': '#e879f9',      // Fuchsia
+    'ENCOURAGING': '#4ade80',// Green
+    'PROFESSIONAL': '#22d3ee',
+    'DEFAULT': '#22d3ee'
+};
 
 // -- ADVANCED HOLOGRAPHIC SHADER --
 // Simulates a volumetric projection with scanlines, fresnel rim lighting, 
@@ -84,16 +95,14 @@ const fragmentShader = `
   }
 `;
 
-const AI_COLOR = new THREE.Color('#22d3ee'); // Cyan-400 equivalent
-
-const CoreMesh: React.FC<{ isTalking: boolean; visemeIntensity: number }> = ({ isTalking, visemeIntensity }) => {
+const CoreMesh: React.FC<{ isTalking: boolean; visemeIntensity: number; color: THREE.Color }> = ({ isTalking, visemeIntensity, color }) => {
   const meshRef = useRef<THREE.Mesh>(null);
   const materialRef = useRef<THREE.ShaderMaterial>(null);
 
   const shaderArgs = useMemo(() => ({
     uniforms: {
       time: { value: 0 },
-      color: { value: AI_COLOR },
+      color: { value: new THREE.Color('#22d3ee') },
       talkIntensity: { value: 0 }
     },
     vertexShader,
@@ -114,8 +123,10 @@ const CoreMesh: React.FC<{ isTalking: boolean; visemeIntensity: number }> = ({ i
     // Update Uniforms
     materialRef.current.uniforms.time.value = state.clock.elapsedTime;
     
+    // Lerp Color based on Mood
+    materialRef.current.uniforms.color.value.lerp(color, delta * 2);
+    
     // Smoothly interpolate the talking intensity for the shader
-    // This prevents the mesh from snapping instantly between visemes
     const targetIntensity = isTalking ? 0.2 + (visemeIntensity / 21) * 0.8 : 0;
     materialRef.current.uniforms.talkIntensity.value = THREE.MathUtils.lerp(
       materialRef.current.uniforms.talkIntensity.value,
@@ -132,7 +143,52 @@ const CoreMesh: React.FC<{ isTalking: boolean; visemeIntensity: number }> = ({ i
   );
 };
 
-const ContainmentRing: React.FC<{ radius: number; speed: number; axis: 'x' | 'y' | 'z' }> = ({ radius, speed, axis }) => {
+// -- DIGITAL EYES COMPONENT --
+// Holographic eyes that blink and squint based on speech
+const Eyes: React.FC<{ isTalking: boolean; visemeIntensity: number; color: THREE.Color }> = ({ isTalking, visemeIntensity, color }) => {
+    const groupRef = useRef<THREE.Group>(null);
+    const [blink, setBlink] = useState(false);
+
+    // Random blinking logic
+    useEffect(() => {
+        const triggerBlink = () => {
+            setBlink(true);
+            setTimeout(() => setBlink(false), 150);
+            setTimeout(triggerBlink, 3000 + Math.random() * 4000);
+        };
+        const timer = setTimeout(triggerBlink, 3000);
+        return () => clearTimeout(timer);
+    }, []);
+
+    useFrame((state, delta) => {
+        if (groupRef.current) {
+            // Squint when talking loudly (visemeIntensity > 10)
+            const targetScaleY = blink ? 0.05 : (isTalking && visemeIntensity > 10) ? 0.4 : 1;
+            
+            groupRef.current.scale.y = THREE.MathUtils.lerp(groupRef.current.scale.y, targetScaleY, delta * 20);
+            
+            // Look slightly at "camera" (mouse interaction could be added here)
+            groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.1;
+        }
+    });
+
+    return (
+        <group ref={groupRef} position={[0, 0.2, 0.8]}>
+            {/* Left Eye */}
+            <mesh position={[-0.35, 0, 0]} rotation={[0, 0.2, 0]}>
+                <planeGeometry args={[0.35, 0.12]} />
+                <meshBasicMaterial color={color} toneMapped={false} side={THREE.DoubleSide} transparent opacity={0.9} />
+            </mesh>
+            {/* Right Eye */}
+            <mesh position={[0.35, 0, 0]} rotation={[0, -0.2, 0]}>
+                <planeGeometry args={[0.35, 0.12]} />
+                <meshBasicMaterial color={color} toneMapped={false} side={THREE.DoubleSide} transparent opacity={0.9} />
+            </mesh>
+        </group>
+    );
+};
+
+const ContainmentRing: React.FC<{ radius: number; speed: number; axis: 'x' | 'y' | 'z'; color: THREE.Color }> = ({ radius, speed, axis, color }) => {
     const ref = useRef<THREE.Group>(null);
     
     useFrame((_, delta) => {
@@ -145,15 +201,13 @@ const ContainmentRing: React.FC<{ radius: number; speed: number; axis: 'x' | 'y'
 
     return (
         <group ref={ref}>
-            {/* Thin wireframe ring */}
             <mesh rotation={[Math.PI / 2, 0, 0]}>
                 <torusGeometry args={[radius, 0.02, 16, 100]} />
-                <meshBasicMaterial color={AI_COLOR} transparent opacity={0.3} blending={THREE.AdditiveBlending} />
+                <meshBasicMaterial color={color} transparent opacity={0.3} blending={THREE.AdditiveBlending} />
             </mesh>
-            {/* Orbital Particle with Trail */}
             <group rotation={[Math.PI / 2, 0, 0]}>
                 <group position={[radius, 0, 0]}>
-                    <Trail width={2} length={8} color={new THREE.Color('#4f46e5')} attenuation={(t) => t * t}>
+                    <Trail width={2} length={8} color={color} attenuation={(t) => t * t}>
                         <mesh>
                             <sphereGeometry args={[0.08, 16, 16]} />
                             <meshBasicMaterial color="#ffffff" toneMapped={false} />
@@ -165,7 +219,7 @@ const ContainmentRing: React.FC<{ radius: number; speed: number; axis: 'x' | 'y'
     );
 };
 
-const DataCloud: React.FC = () => {
+const DataCloud: React.FC<{ color: string }> = ({ color }) => {
     const ref = useRef<THREE.Group>(null);
     useFrame((_, delta) => {
         if (ref.current) ref.current.rotation.y += delta * 0.05;
@@ -179,31 +233,37 @@ const DataCloud: React.FC = () => {
                 size={4} 
                 speed={0.4} 
                 opacity={0.5} 
-                color="#a5f3fc" 
+                color={color}
             />
         </group>
     )
 }
 
-export const Clover3DModel: React.FC<Clover3DModelProps> = ({ isTalking, currentViseme }) => {
+export const Clover3DModel: React.FC<Clover3DModelProps> = ({ isTalking, currentViseme, mood = 'DEFAULT' }) => {
+  const targetColor = useMemo(() => new THREE.Color(MOOD_COLORS[mood] || MOOD_COLORS['DEFAULT']), [mood]);
+  const sparkleColor = MOOD_COLORS[mood] || MOOD_COLORS['DEFAULT'];
+
   return (
     <Canvas camera={{ position: [0, 0, 5], fov: 40 }} gl={{ alpha: true, antialias: true }}>
       <ambientLight intensity={0.5} />
-      <pointLight position={[10, 10, 10]} intensity={1} color="#22d3ee" />
+      <pointLight position={[10, 10, 10]} intensity={1} color={targetColor} />
       <pointLight position={[-10, -5, -10]} intensity={0.5} color="#4f46e5" />
 
       <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
         <group scale={1.2}>
             {/* The Brain */}
-            <CoreMesh isTalking={isTalking} visemeIntensity={currentViseme} />
+            <CoreMesh isTalking={isTalking} visemeIntensity={currentViseme} color={targetColor} />
+            
+            {/* Digital Eyes */}
+            <Eyes isTalking={isTalking} visemeIntensity={currentViseme} color={targetColor} />
             
             {/* The Gyroscope Structure */}
-            <ContainmentRing radius={1.4} speed={0.5} axis="x" />
-            <ContainmentRing radius={1.6} speed={0.3} axis="y" />
-            <ContainmentRing radius={1.8} speed={0.4} axis="z" />
+            <ContainmentRing radius={1.4} speed={0.5} axis="x" color={targetColor} />
+            <ContainmentRing radius={1.6} speed={0.3} axis="y" color={targetColor} />
+            <ContainmentRing radius={1.8} speed={0.4} axis="z" color={targetColor} />
             
             {/* Atmosphere */}
-            <DataCloud />
+            <DataCloud color={sparkleColor} />
         </group>
       </Float>
 
