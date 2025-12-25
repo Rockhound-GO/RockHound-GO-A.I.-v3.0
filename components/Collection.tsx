@@ -1,6 +1,7 @@
+
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Rock, RockType } from '../types';
-import { Search, ArrowUpDown, Loader2, Sparkles, Box, Star, Database, ScanLine, Plus, X, Target, Activity, Cpu, ShieldCheck } from 'lucide-react';
+import { Search, ArrowUpDown, Loader2, Sparkles, Box, Star, Database, ScanLine, Plus, X, Target, Activity, Cpu, ShieldCheck, Microscope } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
@@ -87,7 +88,7 @@ const useCollectionSound = () => {
             osc.frequency.linearRampToValueAtTime(1200, now + 0.2);
             gain.gain.setValueAtTime(0.05, now);
             gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
-            osc.start(now);
+            osc.start(now + 0);
             osc.stop(now + 0.3);
             break;
         case 'select':
@@ -274,6 +275,8 @@ export const Collection: React.FC<CollectionProps> = ({
         @keyframes selection-pulse { 0% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(168, 85, 247, 0); } 100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0); } }
         .animate-selection { animation: selection-pulse 2s infinite; }
         .virtual-row { width: 100%; display: grid; grid-template-cols: repeat(2, 1fr); gap: 1rem; padding: 0.5rem 0; }
+        @keyframes skeleton-pulse { 0% { opacity: 0.3; } 50% { opacity: 0.6; } 100% { opacity: 0.3; } }
+        .animate-skeleton { animation: skeleton-pulse 2s infinite ease-in-out; }
       `}</style>
 
       <div className="absolute inset-0 holo-grid pointer-events-none opacity-40" />
@@ -358,9 +361,25 @@ export const Collection: React.FC<CollectionProps> = ({
         className="flex-1 overflow-y-auto no-scrollbar px-6 relative z-10 scroll-smooth"
       >
         {isLoading ? (
-          <div className="h-64 flex flex-col items-center justify-center space-y-6">
-            <Loader2 className="w-10 h-10 text-cyan-500 animate-spin" />
-            <p className="text-cyan-500/50 text-[10px] font-mono animate-pulse tracking-[0.4em]">CONNECTING_TO_CORE...</p>
+          <div className="space-y-4 pt-4">
+             {/* Loading Message Overlay */}
+             <div className="flex flex-col items-center justify-center py-10 space-y-4">
+                <div className="relative">
+                  <Loader2 className="w-12 h-12 text-cyan-500 animate-spin" />
+                  <Microscope className="absolute inset-0 m-auto w-4 h-4 text-cyan-400" />
+                </div>
+                <div className="flex flex-col items-center">
+                   <p className="text-cyan-500 text-[11px] font-mono animate-pulse tracking-[0.5em] font-black uppercase">Scanning Archive...</p>
+                   <div className="w-32 h-[1px] bg-gradient-to-r from-transparent via-cyan-500/30 to-transparent mt-2" />
+                </div>
+             </div>
+             
+             {/* Skeleton Grid */}
+             <div className="grid grid-cols-2 gap-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <SpecimenSkeleton key={i} />
+                ))}
+             </div>
           </div>
         ) : sortedAndFilteredRocks.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-center opacity-20 space-y-4">
@@ -408,6 +427,7 @@ export const Collection: React.FC<CollectionProps> = ({
                         playSound={playSound}
                         isComparisonMode={localIsComparisonMode}
                         selectionIndex={comparisonSelectionOrder.indexOf(rock.id)}
+                        // FIXED: handleToggleSelection was undefined, corrected to handleToggleComparisonSelection
                         onToggleSelection={() => handleToggleComparisonSelection(rock.id)}
                     />
                   ))}
@@ -483,6 +503,29 @@ const FilterButton: React.FC<{ active: boolean; onClick: () => void; label: stri
     >
         {label}
     </button>
+);
+
+const SpecimenSkeleton: React.FC = () => (
+    <div className="relative aspect-[3/4.2] rounded-2xl border border-white/5 bg-[#0a0f18]/40 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-50" />
+        <div className="absolute inset-0 animate-skeleton bg-cyan-500/5" />
+        <div className="absolute inset-0 flex flex-col justify-between p-4">
+            <div className="flex justify-between items-start">
+                <div className="w-12 h-3 bg-white/5 rounded" />
+                <div className="w-6 h-6 rounded-full bg-white/5" />
+            </div>
+            <div className="space-y-2">
+                <div className="w-16 h-2 bg-white/5 rounded" />
+                <div className="w-24 h-4 bg-white/5 rounded" />
+                <div className="w-full h-[1px] bg-white/5" />
+                <div className="flex justify-between">
+                    <div className="w-10 h-2 bg-white/5 rounded" />
+                    <div className="w-4 h-4 bg-white/5 rounded" />
+                </div>
+            </div>
+        </div>
+        <div className="absolute inset-x-0 h-[1px] bg-cyan-500/10 top-1/2 animate-[scan-v_2s_infinite]" />
+    </div>
 );
 
 interface SpecimenCardProps {

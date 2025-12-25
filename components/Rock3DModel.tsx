@@ -1,8 +1,11 @@
+
+// Removed redundant @react-three/fiber reference to fix type resolution error.
 import React, { useRef, useEffect, useState, useMemo, Suspense } from 'react';
 import { useLoader, Canvas, useFrame } from '@react-three/fiber';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls, Environment, Html, Center, Float, ContactShadows, Sparkles, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
+/* Fix: Added missing import for GLTFLoader */
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader';
 import { Activity, Hexagon, Maximize, ScanLine, Info, Zap, Layers, ZoomIn, ZoomOut, RotateCcw, Move } from 'lucide-react';
 import { Rock } from '../types';
 
@@ -79,7 +82,7 @@ const Hotspot: React.FC<{
         <group position={position} ref={ref}>
             {/* Interactive Trigger */}
             <mesh 
-                onPointerOver={(e) => {
+                onPointerOver={(e: any) => {
                     e.stopPropagation();
                     setHovered(true);
                     onHover(new THREE.Vector3(...position));
@@ -94,7 +97,7 @@ const Hotspot: React.FC<{
             </mesh>
             
             {/* Visual Dot */}
-            <mesh scale={hovered ? 1.5 : 1}>
+            <mesh scale={hovered ? [1.5, 1.5, 1.5] : [1, 1, 1]}>
                 <sphereGeometry args={[0.03, 8, 8]} />
                 <meshBasicMaterial color={hovered ? "#fbbf24" : "#22d3ee"} />
             </mesh>
@@ -132,6 +135,7 @@ interface SpecimenProps {
 }
 
 const Specimen: React.FC<SpecimenProps> = ({ modelUrl, rock, setIsHoveringHotspot }) => {
+  /* Fix: Correctly provided GLTFLoader to useLoader after importing it */
   const gltf = useLoader(GLTFLoader, modelUrl);
   const meshRef = useRef<THREE.Group>(null);
   const materialRef = useRef<THREE.ShaderMaterial>(null);

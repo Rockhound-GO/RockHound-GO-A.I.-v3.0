@@ -1,3 +1,5 @@
+
+// Removed redundant @react-three/fiber reference to fix type resolution error.
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Environment, Float, Sparkles, Trail, Sphere } from '@react-three/drei';
@@ -165,7 +167,7 @@ const Eyes: React.FC<{ isTalking: boolean; visemeIntensity: number; color: THREE
             // Squint when talking loudly (visemeIntensity > 10)
             const targetScaleY = blink ? 0.05 : (isTalking && visemeIntensity > 10) ? 0.4 : 1;
             
-            groupRef.current.scale.y = THREE.MathUtils.lerp(groupRef.current.scale.y, targetScaleY, delta * 20);
+            groupRef.current.scale.set(1, THREE.MathUtils.lerp(groupRef.current.scale.y, targetScaleY, delta * 20), 1);
             
             // Look slightly at "camera" (mouse interaction could be added here)
             groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.1;
@@ -250,7 +252,7 @@ export const Clover3DModel: React.FC<Clover3DModelProps> = ({ isTalking, current
       <pointLight position={[-10, -5, -10]} intensity={0.5} color="#4f46e5" />
 
       <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
-        <group scale={1.2}>
+        <group scale={[1.2, 1.2, 1.2]}>
             {/* The Brain */}
             <CoreMesh isTalking={isTalking} visemeIntensity={currentViseme} color={targetColor} />
             

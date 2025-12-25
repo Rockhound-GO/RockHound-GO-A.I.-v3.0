@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 // --- CORE ENUMS ---
@@ -76,6 +77,15 @@ export interface RockAnalysis {
   funFact: string;
   comparisonImageUrl?: string;
   
+  // Clover's Master's Insights
+  isGeologicalSpecimen: boolean; // Instruction: Handle non-rock rejections
+  formationGenesis: string; // How it formed (petrology)
+  expertExplanation: string; // High-level explanation for the user
+  bonusXP: {
+    rarity: number;
+    expertEye: number;
+  };
+
   // AI Metadata (The "Science" Layer)
   aiConfidence?: number;
   modelVersion?: string;
@@ -97,6 +107,26 @@ export interface Rock extends RockAnalysis {
 }
 
 // --- GAMIFICATION & MISSIONS ---
+
+export interface DailyBounty {
+  id: string;
+  targetMineral: string;
+  locationName: string;
+  geologicalReason: string;
+  xpMultiplier: number;
+  expiresAt: number;
+}
+
+export interface GeologicalZone {
+  id: string;
+  type: 'METAMORPHIC' | 'ALLUVIAL' | 'IGNEOUS_PLUTONIC' | 'HYDROTHERMAL';
+  coordinates: [number, number]; // lat, lng center
+  radius: number; // meters
+  access: 'PUBLIC' | 'PRIVATE';
+  name: string;
+  description: string;
+  likelyMinerals: string[];
+}
 
 export interface Challenge {
   id: string;
@@ -131,9 +161,8 @@ export interface WeatherHourly {
   temperature_2m_previous_day4: number[];
   temperature_2m_previous_day5: number[];
   cloudcover: number[];
-  // Future expansion
-  precipitation_probability?: number[];
-  windspeed_10m?: number[];
+  precipitation: number[]; 
+  windspeed_10m: number[]; 
 }
 
 export interface WeatherData {
@@ -153,6 +182,8 @@ export interface WeatherData {
     temperature_2m_previous_day4: string;
     temperature_2m_previous_day5: string;
     cloudcover: string;
+    precipitation: string;
+    windspeed_10m: string;
   };
   hourly: WeatherHourly;
 }

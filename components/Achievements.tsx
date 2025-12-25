@@ -1,7 +1,8 @@
+
 import React, { useMemo, useRef, useState, useCallback } from 'react';
 import { Rock, RockType, Achievement } from '../types';
 import { User } from '../services/api';
-import { Gem, Compass, Sprout, BarChart2, Microscope, Shield, Star, Award, Mountain, Crown, Lock, Unlock, Trophy, Zap, Scan, Hexagon } from 'lucide-react';
+import { Gem, Compass, Sprout, BarChart2, Microscope, Shield, Star, Award, Mountain, Crown, Lock, Unlock, Trophy, Zap, Scan, Hexagon, Handshake, ShieldCheck } from 'lucide-react';
 
 // -- AUDIO ENGINE (Local) --
 const useHoverSound = () => {
@@ -44,6 +45,24 @@ const ALL_ACHIEVEMENTS: Achievement[] = [
     xpReward: 50,
     goal: 1,
     progress: (user, rocks) => rocks.length,
+  },
+  {
+    id: 'prepared_geologist',
+    title: 'Prepared Geologist',
+    description: 'Verify all safety gear before a field trip.',
+    icon: ShieldCheck,
+    xpReward: 100,
+    goal: 1,
+    progress: (user) => (localStorage.getItem('gear_verified_count') ? parseInt(localStorage.getItem('gear_verified_count')!) : 0),
+  },
+  {
+    id: 'diplomat',
+    title: 'Rockhound Diplomat',
+    description: 'Secure legal permission to scout private land.',
+    icon: Handshake,
+    xpReward: 200,
+    goal: 1,
+    progress: (user) => (localStorage.getItem('diplomat_unlocked') ? 1 : 0),
   },
   {
     id: 'collector_1',

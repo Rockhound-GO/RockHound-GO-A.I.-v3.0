@@ -1,9 +1,10 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera, Upload, RotateCcw, X, ScanLine, Loader2, Zap, Sun, Ruler, Focus, Crosshair, AlertTriangle, MapPin, Cpu, Database, Microscope, Search, Activity, FileDigit, ShieldCheck } from 'lucide-react';
+import { Camera, Upload, RotateCcw, X, ScanLine, Loader2, Zap, Sun, Ruler, Focus, Crosshair, AlertTriangle, MapPin, Cpu, Database, Microscope, Search, Activity, FileDigit, ShieldCheck, Info, RefreshCw } from 'lucide-react';
 import Webcam from 'react-webcam';
 import toast from 'react-hot-toast';
-import { identifyRock, generateReferenceImage } from '../services/geminiService';
-import { Rock } from '../types';
+import { identifyRock, generateReferenceImage, generateCloverDialogue } from '../services/geminiService';
+import { Rock, RockAnalysis } from '../types';
 
 interface ScannerProps {
   onRockDetected: (rock: Rock) => void;
@@ -28,18 +29,15 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [activeStageIndex, setActiveStageIndex] = useState(0);
   
-  const [lightingStatus, setLightingStatus] = useState<'LOW' | 'OPTIMAL' | 'HIGH'>('LOW');
-  const [range, setRange] = useState(0.0);
-  const [isFocused, setIsFocused] = useState(false);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [isCameraReady, setIsCameraReady] = useState(false); 
+  // Rejection State (Path B)
+  const [rejectionData, setRejectionData] = useState<RockAnalysis | null>(null);
+  
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<'acquiring' | 'locked' | 'denied' | 'unavailable'>('acquiring');
 
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // -- ANALYSIS PROGRESS ENGINE --
   useEffect(() => {
     let interval: number;
     if (isScanning) {
@@ -57,7 +55,6 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
     return () => clearInterval(interval);
   }, [isScanning]);
 
-  // -- GEOLOCATION --
   useEffect(() => {
     if ("geolocation" in navigator) {
       const id = navigator.geolocation.watchPosition(
@@ -70,7 +67,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
   }, []);
 
   const handleCapture = useCallback(() => {
-    if (!webcamRef.current || !isCameraReady) return;
+    if (!webcamRef.current) return;
     setIsShutterPressed(true);
     setIsFlashing(true);
     const audio = document.getElementById('capture-shutter') as HTMLAudioElement;
@@ -82,40 +79,23 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
       setIsShutterPressed(false);
       setTimeout(() => setIsFlashing(false), 200);
     }, 150);
-  }, [isCameraReady]);
-
-  const processFile = (file: File) => {
-    if (!file.type.startsWith('image/')) {
-        toast.error("INVALID DATA FORMAT. Images only.");
-        return;
-    }
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setImgSrc(reader.result as string);
-      setCameraError(null);
-      setIsCameraReady(true);
-      toast.success("DATA LINK ESTABLISHED", { icon: '📡' });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processFile(file);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) processFile(file);
-  };
+  }, []);
 
   const handleScan = async () => {
     if (!imgSrc) return;
     setIsScanning(true);
+    setRejectionData(null);
     try {
       const analysis = await identifyRock(imgSrc);
+      
+      if (!analysis.isGeologicalSpecimen) {
+          // Path B: Non-rock Rejection
+          setRejectionData(analysis);
+          setIsScanning(false);
+          return;
+      }
+
+      // Path A: Geological Specimen
       const rockData: Rock = {
         ...analysis,
         id: crypto.randomUUID(),
@@ -136,7 +116,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
   const reset = () => {
     setImgSrc(null);
     setIsScanning(false);
-    setIsCameraReady(false);
+    setRejectionData(null);
   };
 
   return (
@@ -144,7 +124,15 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
         className={`h-full flex flex-col bg-black relative overflow-hidden font-mono transition-colors duration-300 ${isDragActive ? 'bg-cyan-950/20' : ''}`}
         onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
         onDragLeave={() => setIsDragActive(false)}
-        onDrop={handleDrop}
+        onDrop={(e) => {
+            e.preventDefault(); setIsDragActive(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => { setImgSrc(reader.result as string); };
+                reader.readAsDataURL(file);
+            }
+        }}
     >
       <style>{`
         @keyframes scan-v { 0% { top: 0%; opacity: 0; } 50% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
@@ -158,38 +146,42 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
         <div className={`absolute inset-0 z-50 bg-white pointer-events-none transition-opacity duration-300 ${isFlashing ? 'opacity-80' : 'opacity-0'}`} />
         <div className="absolute inset-0 grid-bg opacity-40 pointer-events-none" />
 
-        {/* Drag Overlay */}
-        <div className={`absolute inset-0 z-40 bg-cyan-500/10 backdrop-blur-md border-4 border-dashed border-cyan-500/50 flex flex-col items-center justify-center transition-all duration-300 pointer-events-none ${isDragActive ? 'opacity-100 scale-100' : 'opacity-0 scale-110'}`}>
-            <FileDigit className="w-20 h-20 text-cyan-400 animate-bounce" />
-            <h2 className="text-2xl font-black text-cyan-400 tracking-[0.3em] mt-4">AWAITING SPECIMEN DATA</h2>
-            <div className="text-[10px] text-cyan-500/70 font-bold uppercase mt-2">Release to initiate neural ingest</div>
-        </div>
-
-        {!imgSrc ? (
-            cameraError ? (
-                <div className="flex flex-col items-center justify-center p-8 text-center space-y-6 relative z-10">
-                     <div className="w-24 h-24 rounded-full bg-red-900/20 border-2 border-red-500/50 flex items-center justify-center relative">
-                         <Camera className="w-10 h-10 text-red-500" />
-                         <AlertTriangle className="absolute -top-2 -right-2 text-red-400" />
-                     </div>
-                     <button 
-                        onClick={() => fileInputRef.current?.click()}
-                        className="px-8 py-4 bg-gray-900 border border-white/10 hover:border-cyan-500/50 rounded-xl text-sm font-bold text-white uppercase tracking-widest transition-all"
-                     >
-                        Initiate Manual Data Link
-                     </button>
+        {rejectionData ? (
+            <div className="absolute inset-0 bg-black/90 backdrop-blur-md z-40 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
+                <div className="relative mb-8">
+                    <div className="absolute inset-0 bg-red-500/20 blur-2xl rounded-full animate-pulse" />
+                    <div className="relative w-32 h-32 rounded-full border-4 border-red-500/50 flex items-center justify-center bg-red-900/20">
+                        <X className="w-16 h-16 text-red-400" />
+                    </div>
                 </div>
-            ) : (
-              <Webcam
+                <h2 className="text-3xl font-black text-white uppercase tracking-widest mb-2">Non-Rock Detected</h2>
+                <div className="px-4 py-1 bg-red-500 text-black text-[10px] font-black uppercase tracking-widest mb-6 rounded-sm">No XP Awarded</div>
+                
+                <div className="max-w-md bg-white/5 border border-white/10 rounded-2xl p-6 text-left relative overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
+                    <h3 className="text-red-400 text-xs font-black uppercase tracking-widest mb-3 flex items-center gap-2">
+                        <Microscope size={14}/> Clover's Teachable Moment
+                    </h3>
+                    <p className="text-gray-300 text-sm leading-relaxed mb-4 italic">
+                        "{rejectionData.expertExplanation}"
+                    </p>
+                    <div className="text-[10px] text-gray-500 font-mono leading-relaxed bg-black/40 p-3 rounded-lg border border-white/5">
+                        <span className="text-red-400 font-bold">ANALYSIS:</span> {rejectionData.description}
+                    </div>
+                </div>
+
+                <button onClick={reset} className="mt-12 px-8 py-4 bg-white/5 border border-white/10 hover:border-cyan-500/50 rounded-xl text-xs font-black text-cyan-400 uppercase tracking-[0.3em] transition-all flex items-center gap-3">
+                    <RefreshCw size={14} /> Re-Initialize Sensors
+                </button>
+            </div>
+        ) : !imgSrc ? (
+            <Webcam
                 audio={false}
                 ref={webcamRef}
                 screenshotFormat="image/jpeg"
                 videoConstraints={{ facingMode, width: 1280, height: 720 }}
                 className="w-full h-full object-cover"
-                onUserMedia={() => setIsCameraReady(true)}
-                onUserMediaError={() => setCameraError("Hardware connection failure")}
-              />
-            )
+            />
         ) : (
           <div className="w-full h-full relative overflow-hidden">
               <img src={imgSrc} alt="Captured" className="w-full h-full object-cover animate-snap-zoom" />
@@ -219,13 +211,13 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
         )}
 
         {/* HUD OVERLAY */}
-        {!imgSrc && !cameraError && (
+        {!imgSrc && !rejectionData && (
           <div className="absolute inset-0 pointer-events-none z-10">
              <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start bg-gradient-to-b from-black to-transparent">
                  <div className="space-y-1">
                      <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest text-cyan-400">
                          <Activity size={12} className="animate-pulse" />
-                         SENSOR_LINK: {isCameraReady ? 'ACTIVE' : 'READYING...'}
+                         SENSOR_LINK: ACTIVE
                      </div>
                      <div className="text-[8px] text-gray-500">LATENCY: 0.82MS // NEURAL_NET_V4.5</div>
                  </div>
@@ -258,51 +250,48 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
 
       {/* Control Deck */}
       <div className="flex-none bg-black/90 backdrop-blur-2xl border-t border-white/10 p-8 pb-safe z-20">
-        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
+        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onloadend = () => { setImgSrc(reader.result as string); };
+                reader.readAsDataURL(file);
+            }
+        }} />
         {!imgSrc ? (
             <div className="flex justify-between items-center max-w-md mx-auto">
-                <button 
-                    onClick={() => fileInputRef.current?.click()}
-                    className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-cyan-500/10 hover:border-cyan-500/40 transition-all group"
-                    title="Neural Data Link"
-                >
+                <button onClick={() => fileInputRef.current?.click()} className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-cyan-500/10 hover:border-cyan-500/40 transition-all group">
                     <FileDigit className="w-6 h-6 group-hover:text-cyan-400" />
-                    <span className="block text-[8px] mt-1 font-bold tracking-tighter opacity-50">LINK_DATA</span>
                 </button>
                 
-                <button 
-                    onClick={handleCapture} 
-                    disabled={!isCameraReady}
-                    className="relative w-24 h-24 group disabled:opacity-30 transition-transform active:scale-95"
-                >
+                <button onClick={handleCapture} className="relative w-24 h-24 group transition-transform active:scale-95">
                     <div className="absolute inset-0 bg-cyan-400 rounded-full blur-xl opacity-20 group-hover:opacity-40 transition-opacity" />
                     <div className="w-full h-full rounded-full border-4 border-cyan-400 flex items-center justify-center p-2">
                         <div className="w-full h-full bg-white rounded-full transition-transform duration-100 group-hover:scale-90" />
                     </div>
                 </button>
 
-                <button 
-                    onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')}
-                    className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-indigo-500/10 hover:border-indigo-500/40 transition-all group"
-                    title="Toggle Lens"
-                >
+                <button onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')} className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-indigo-500/10 hover:border-indigo-500/40 transition-all group">
                     <RotateCcw className="w-6 h-6 group-hover:text-indigo-400" />
-                    <span className="block text-[8px] mt-1 font-bold tracking-tighter opacity-50">CYCLE_OPTS</span>
                 </button>
             </div>
         ) : (
             <div className="flex gap-4 max-w-md mx-auto">
-                <button onClick={reset} disabled={isScanning} className="flex-1 py-5 bg-gray-900 border border-white/10 rounded-2xl text-white font-black uppercase tracking-widest text-xs hover:bg-gray-800 transition-colors disabled:opacity-50">
-                    Purge
-                </button>
-                <button 
-                    onClick={handleScan} 
-                    disabled={isScanning} 
-                    className="flex-[2] py-5 bg-cyan-600 rounded-2xl text-white font-black uppercase tracking-widest text-xs shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:bg-cyan-500 transition-all flex items-center justify-center gap-3 disabled:opacity-50"
-                >
-                    {isScanning ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
-                    {isScanning ? 'INGESTING...' : 'INITIATE_ANALYSIS'}
-                </button>
+                {!rejectionData && (
+                    <>
+                        <button onClick={reset} disabled={isScanning} className="flex-1 py-5 bg-gray-900 border border-white/10 rounded-2xl text-white font-black uppercase tracking-widest text-xs hover:bg-gray-800 transition-colors">
+                            Purge
+                        </button>
+                        <button 
+                            onClick={handleScan} 
+                            disabled={isScanning} 
+                            className="flex-[2] py-5 bg-cyan-600 rounded-2xl text-white font-black uppercase tracking-widest text-xs shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:bg-cyan-500 transition-all flex items-center justify-center gap-3"
+                        >
+                            {isScanning ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
+                            {isScanning ? 'INGESTING...' : 'INITIATE_ANALYSIS'}
+                        </button>
+                    </>
+                )}
             </div>
         )}
       </div>

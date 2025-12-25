@@ -1,11 +1,8 @@
+
 import { WeatherData, WeatherHourly } from '../types';
 
 // -- PROCEDURAL GENERATION ENGINE --
 
-// Simple 1D noise for smooth transitions (Linear Interpolation)
-const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-
-// Generate realistic diurnal cycle
 const generateDiurnalCycle = (hour: number, baseTemp: number, amplitude: number) => {
     // Peak heat at 15:00 (3 PM), lowest at 04:00 (4 AM)
     const timeOffset = (hour - 15) / 24 * Math.PI * 2;
@@ -17,6 +14,8 @@ const generateForecast = (days: number): WeatherHourly => {
     const times: string[] = [];
     const temps: number[] = [];
     const clouds: number[] = [];
+    const precip: number[] = [];
+    const winds: number[] = [];
     
     // Historical buffers
     const prev1: number[] = [];
@@ -29,17 +28,15 @@ const generateForecast = (days: number): WeatherHourly => {
     
     // Seed random starting conditions
     let currentCloudTrend = Math.random() * 100;
+    let currentWindTrend = 10 + Math.random() * 10;
     
     for (let i = 0; i < hoursTotal; i++) {
-        // Time Stamp
         const d = new Date(now);
         d.setHours(d.getHours() + i);
         times.push(d.toISOString().slice(0, 16));
 
         // 1. Temperature Simulation
-        // Base temp 55F, Swing +/- 15F
         const baseTemp = generateDiurnalCycle(d.getHours(), 55, 15);
-        // Add random "weather front" noise
         const frontNoise = Math.sin(i / 50) * 10; 
         const microNoise = (Math.random() - 0.5) * 2;
         temps.push(Math.round(baseTemp + frontNoise + microNoise));
@@ -47,13 +44,23 @@ const generateForecast = (days: number): WeatherHourly => {
         // 2. Cloud Cover Simulation (Brownian Motion)
         const drift = (Math.random() - 0.5) * 20;
         currentCloudTrend = Math.max(0, Math.min(100, currentCloudTrend + drift));
-        // Clouds tend to build up in afternoon
-        const afternoonBoost = (d.getHours() > 12 && d.getHours() < 18) ? 10 : 0;
-        clouds.push(Math.round(Math.min(100, currentCloudTrend + afternoonBoost)));
+        const dHour = d.getHours();
+        const afternoonBoost = (dHour > 12 && dHour < 18) ? 10 : 0;
+        const finalClouds = Math.round(Math.min(100, currentCloudTrend + afternoonBoost));
+        clouds.push(finalClouds);
 
-        // 3. Historical Data Generation (Simulating "Ghost" traces)
-        prev1.push(Math.round(baseTemp + frontNoise + (Math.random() - 0.5) * 5 - 2)); // Yesterday slightly cooler
-        prev2.push(Math.round(baseTemp + frontNoise + (Math.random() - 0.5) * 5 + 3)); // 2 days ago warmer
+        // 3. Precipitation (Correlated with clouds)
+        const rainChance = finalClouds > 80 ? (finalClouds - 80) * 2 : 0;
+        precip.push(Math.random() * 100 < rainChance ? Math.round(Math.random() * 5) : 0);
+
+        // 4. Wind Speed
+        const windDrift = (Math.random() - 0.5) * 5;
+        currentWindTrend = Math.max(2, Math.min(45, currentWindTrend + windDrift));
+        winds.push(Math.round(currentWindTrend));
+
+        // Historical
+        prev1.push(Math.round(baseTemp + frontNoise + (Math.random() - 0.5) * 5 - 2));
+        prev2.push(Math.round(baseTemp + frontNoise + (Math.random() - 0.5) * 5 + 3));
         prev3.push(Math.round(baseTemp + frontNoise + (Math.random() - 0.5) * 5));
         prev4.push(Math.round(baseTemp + frontNoise + (Math.random() - 0.5) * 5));
         prev5.push(Math.round(baseTemp + frontNoise + (Math.random() - 0.5) * 5));
@@ -67,23 +74,22 @@ const generateForecast = (days: number): WeatherHourly => {
         temperature_2m_previous_day3: prev3,
         temperature_2m_previous_day4: prev4,
         temperature_2m_previous_day5: prev5,
-        cloudcover: clouds
+        cloudcover: clouds,
+        precipitation: precip,
+        windspeed_10m: winds
     };
 };
 
-// -- MOCK DATA STORE --
 let cachedForecast: WeatherData | null = null;
 
 export const getWeatherData = async (): Promise<WeatherData> => {
-  // Simulate satellite uplink delay
   await new Promise(resolve => setTimeout(resolve, 800));
 
-  // Return cached data if valid (simulating real-time updates every hour)
   if (cachedForecast && new Date().getMinutes() !== 0) {
       return cachedForecast;
   }
 
-  const generated = generateForecast(7); // Generate 7 days of data
+  const generated = generateForecast(7);
 
   cachedForecast = {
     latitude: 52.52,
@@ -101,7 +107,9 @@ export const getWeatherData = async (): Promise<WeatherData> => {
       temperature_2m_previous_day3: "°F",
       temperature_2m_previous_day4: "°F",
       temperature_2m_previous_day5: "°F",
-      cloudcover: "%"
+      cloudcover: "%",
+      precipitation: "mm",
+      windspeed_10m: "km/h"
     },
     hourly: generated
   };
