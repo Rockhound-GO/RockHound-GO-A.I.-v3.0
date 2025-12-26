@@ -69,10 +69,10 @@ async function retryWithExponentialBackoff<T>(
     const isQuota = error.status === 429 || error.response?.status === 429 || error.message?.includes('429');
     
     if (isQuota || retriesLeft > 0) {
-      const delay = isQuota ? 5000 : 1000 * (MAX_RETRIES - retriesLeft + 1);
+      const delay = isQuota ? 6000 : 1000 * (MAX_RETRIES - retriesLeft + 1);
       
       if (isQuota) {
-        toast.error(`Neural Link Saturated. Retrying in ${delay/1000}s...`, { id: 'ai-retry' });
+        toast.error(`Neural Link Saturated (Quota Reached). Retrying in ${Math.round(delay/1000)}s...`, { id: 'ai-retry' });
       }
       
       await new Promise(resolve => setTimeout(resolve, delay));

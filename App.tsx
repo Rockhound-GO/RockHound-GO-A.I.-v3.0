@@ -167,30 +167,54 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const currentUser = api.getCurrentUser();
-    if (currentUser) setUser(currentUser);
+    if (currentUser) {
+      setUser(currentUser);
+    } else {
+      // Provision mock token for Guest User to prevent "Authentication Required" errors
+      localStorage.setItem('token', 'mock_token_guest_scout');
+      localStorage.setItem('current_user_data', JSON.stringify(GUEST_USER));
+      setUser(GUEST_USER);
+    }
+    
     api.onSyncStatusChange = setIsSyncing;
     const onPopState = (e: PopStateEvent) => e.state?.view && setCurrentView(e.state.view);
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  // Clover's Periodic Scouting Logic
+  // --- CLOVER PERIODIC SCOUTING LOGIC ---
+  const triggerScoutScan = useCallback(async () => {
+    if (!user) return;
+    
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const report = await getScoutingReport(pos.coords.latitude, pos.coords.longitude, user.level);
+        setScoutingReport(report);
+        setCloverMode('SCOUTING');
+        setShowClover(true);
+        playFX('clover');
+      } catch (err) {
+        console.warn("Scouting scan failed (likely quota or signal)");
+      }
+    }, (err) => {
+      console.warn("Location unavailable for scout scan.");
+    }, { enableHighAccuracy: true });
+  }, [user, playFX]);
+
   useEffect(() => {
     if (user && bootState === 'READY') {
-      const scoutInterval = setInterval(async () => {
-        if (currentView === View.SCANNER || currentView === View.MAP) {
-           navigator.geolocation.getCurrentPosition(async (pos) => {
-              const report = await getScoutingReport(pos.coords.latitude, pos.coords.longitude, user.level);
-              setScoutingReport(report);
-              setCloverMode('SCOUTING');
-              setShowClover(true);
-              playFX('clover');
-           }, null, { enableHighAccuracy: true });
-        }
-      }, 300000); // Every 5 minutes
-      return () => clearInterval(scoutInterval);
+      // Initial scouting scan after 10 seconds
+      const initialScout = setTimeout(triggerScoutScan, 10000);
+      
+      // Periodic scouting every 3 minutes
+      const scoutInterval = setInterval(triggerScoutScan, 180000);
+      
+      return () => {
+        clearTimeout(initialScout);
+        clearInterval(scoutInterval);
+      }
     }
-  }, [user, bootState, currentView, playFX]);
+  }, [user, bootState, triggerScoutScan]);
 
   useEffect(() => {
     if (user && bootState === 'READY') {
@@ -205,7 +229,7 @@ const App: React.FC = () => {
           setShowClover(true);
           localStorage.setItem('intro_shown', 'true');
           playFX('clover');
-        }, 3500); // Wait for the world to "load" before appearing
+        }, 3500);
         return () => clearTimeout(introTimer);
       }
     }
@@ -290,6 +314,7 @@ const App: React.FC = () => {
         return (
             <Collection 
                 rocks={collection} 
+                // Fix: Replace playSound with playFX as defined in App component
                 onRockClick={(rock) => { playFX('click'); setSelectedRock(rock); setCurrentView(View.DETAILS); }}
                 onStartComparisonMode={startComparisonMode}
                 onFinalizeComparison={finalizeComparison}
