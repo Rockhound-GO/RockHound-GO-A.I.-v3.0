@@ -1,115 +1,106 @@
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { Camera, Upload, RotateCcw, X, ScanLine, Loader2, Zap, Sun, Ruler, Focus, Crosshair, AlertTriangle, MapPin, Cpu, Database, Microscope, Search, Activity, FileDigit, ShieldCheck, Info, RefreshCw } from 'lucide-react';
+import { RotateCcw, X, ScanLine, Loader2, Crosshair, MapPin, Cpu, Microscope, Search, Activity, ShieldCheck, RefreshCw, Flashlight, FlashlightOff, Zap, BrainCircuit } from 'lucide-react';
 import Webcam from 'react-webcam';
 import toast from 'react-hot-toast';
-import { identifyRock, generateReferenceImage, generateCloverDialogue } from '../services/geminiService';
+import { identifyRock, generateReferenceImage } from '../services/geminiService';
 import { Rock, RockAnalysis } from '../types';
+import { DiscoveryReveal } from './DiscoveryReveal';
+import { User } from '../services/api';
 
 interface ScannerProps {
+  user: User;
   onRockDetected: (rock: Rock) => void;
 }
 
 const ANALYSIS_STAGES = [
-  { text: "INITIALIZING NEURAL LINK...", icon: Cpu },
-  { text: "DECOMPOSING TEXTURE MAPS...", icon: Microscope },
-  { text: "SPECTRAL ANALYSIS ACTIVE...", icon: Activity },
-  { text: "CROSS-REFERENCING GLOBAL DB...", icon: Database },
-  { text: "FINALIZING SPECIMEN REPORT...", icon: Search },
+  { text: "CALIBRATING SPECTRAL SENSORS...", icon: Cpu },
+  { text: "ISOLATING LATTICE STRUCTURE...", icon: Microscope },
+  { text: "CROSS-REFERENCING GEOSPATIAL DB...", icon: Activity },
+  { text: "FINALIZING MSc REPORT...", icon: Search },
 ];
 
-export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
+export const Scanner: React.FC<ScannerProps> = ({ user, onRockDetected }) => {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [isDeepScanning, setIsDeepScanning] = useState(false);
   const [facingMode, setFacingMode] = useState<'user' | 'environment'>('environment');
-  const [isShutterPressed, setIsShutterPressed] = useState(false);
-  const [isFlashing, setIsFlashing] = useState(false);
-  const [isDragActive, setIsDragActive] = useState(false);
-  
+  const [isTorchOn, setIsTorchOn] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [activeStageIndex, setActiveStageIndex] = useState(0);
-  
-  // Rejection State (Path B)
+  const [showReveal, setShowReveal] = useState(false);
+  const [pendingRock, setPendingRock] = useState<Rock | null>(null);
   const [rejectionData, setRejectionData] = useState<RockAnalysis | null>(null);
-  
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationStatus, setLocationStatus] = useState<'acquiring' | 'locked' | 'denied' | 'unavailable'>('acquiring');
 
   const webcamRef = useRef<Webcam>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    let interval: number;
-    if (isScanning) {
-      setAnalysisProgress(0);
-      setActiveStageIndex(0);
-      interval = window.setInterval(() => {
-        setAnalysisProgress(prev => {
-          const increment = prev > 80 ? 0.4 : prev > 50 ? 1.5 : 4;
-          const next = Math.min(prev + increment, 99);
-          setActiveStageIndex(Math.floor((next / 100) * ANALYSIS_STAGES.length));
-          return next;
-        });
-      }, 100);
-    }
-    return () => clearInterval(interval);
-  }, [isScanning]);
+  const deepScanTimer = useRef<number | null>(null);
 
   useEffect(() => {
     if ("geolocation" in navigator) {
-      const id = navigator.geolocation.watchPosition(
-        (pos) => { setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setLocationStatus('locked'); },
-        (err) => setLocationStatus(err.code === err.PERMISSION_DENIED ? 'denied' : 'unavailable'),
-        { enableHighAccuracy: true, timeout: 5000 }
-      );
-      return () => navigator.geolocation.clearWatch(id);
+      navigator.geolocation.getCurrentPosition((pos) => {
+        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+      });
     }
   }, []);
 
   const handleCapture = useCallback(() => {
     if (!webcamRef.current) return;
-    setIsShutterPressed(true);
-    setIsFlashing(true);
-    const audio = document.getElementById('capture-shutter') as HTMLAudioElement;
-    if (audio) { audio.currentTime = 0; audio.play().catch(() => {}); }
-    
-    setTimeout(() => {
-      const imageSrc = webcamRef.current?.getScreenshot();
-      if (imageSrc) setImgSrc(imageSrc);
-      setIsShutterPressed(false);
-      setTimeout(() => setIsFlashing(false), 200);
-    }, 150);
+    const imageSrc = webcamRef.current.getScreenshot();
+    if (imageSrc) setImgSrc(imageSrc);
   }, []);
+
+  const startDeepScan = () => {
+    setIsDeepScanning(true);
+    deepScanTimer.current = window.setTimeout(handleCapture, 1200);
+  };
+
+  const cancelDeepScan = () => {
+    setIsDeepScanning(false);
+    if (deepScanTimer.current) {
+        clearTimeout(deepScanTimer.current);
+        deepScanTimer.current = null;
+    }
+  };
 
   const handleScan = async () => {
     if (!imgSrc) return;
     setIsScanning(true);
-    setRejectionData(null);
+    setAnalysisProgress(0);
+    
+    const interval = setInterval(() => {
+        setAnalysisProgress(p => {
+            if (p >= 99) { clearInterval(interval); return 99; }
+            const next = p + (p > 80 ? 0.8 : 8);
+            setActiveStageIndex(Math.floor((next / 100) * ANALYSIS_STAGES.length));
+            return next;
+        });
+    }, 60);
+
     try {
       const analysis = await identifyRock(imgSrc);
-      
+      clearInterval(interval);
       if (!analysis.isGeologicalSpecimen) {
-          // Path B: Non-rock Rejection
           setRejectionData(analysis);
           setIsScanning(false);
           return;
       }
-
-      // Path A: Geological Specimen
       const rockData: Rock = {
         ...analysis,
         id: crypto.randomUUID(),
-        userId: 'temp', 
+        userId: user.id, 
         dateFound: Date.now(),
         imageUrl: imgSrc,
         status: 'approved',
         comparisonImageUrl: await generateReferenceImage(imgSrc, analysis.name),
         location: location || undefined,
       };
-      onRockDetected(rockData);
+      setPendingRock(rockData);
+      setShowReveal(true);
     } catch (error) {
-      toast.error('Neural Link Dropout. Retrying...');
+      toast.error('Uplink Failed.');
       setIsScanning(false);
+      clearInterval(interval);
     }
   };
 
@@ -117,92 +108,72 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
     setImgSrc(null);
     setIsScanning(false);
     setRejectionData(null);
+    setPendingRock(null);
+    setShowReveal(false);
   };
 
+  if (showReveal && pendingRock) {
+      return <DiscoveryReveal rock={pendingRock} onDismiss={() => onRockDetected(pendingRock)} />;
+  }
+
   return (
-    <div 
-        className={`h-full flex flex-col bg-black relative overflow-hidden font-mono transition-colors duration-300 ${isDragActive ? 'bg-cyan-950/20' : ''}`}
-        onDragOver={(e) => { e.preventDefault(); setIsDragActive(true); }}
-        onDragLeave={() => setIsDragActive(false)}
-        onDrop={(e) => {
-            e.preventDefault(); setIsDragActive(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onloadend = () => { setImgSrc(reader.result as string); };
-                reader.readAsDataURL(file);
-            }
-        }}
-    >
+    <div className="h-full flex flex-col bg-black relative overflow-hidden font-mono selection:bg-cyan-500/30">
       <style>{`
-        @keyframes scan-v { 0% { top: 0%; opacity: 0; } 50% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
-        @keyframes grid-drift { 0% { background-position: 0 0; } 100% { background-position: 40px 40px; } }
-        .hud-scan { animation: scan-v 2.5s ease-in-out infinite; }
-        .grid-bg { background-image: linear-gradient(rgba(34, 211, 238, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(34, 211, 238, 0.05) 1px, transparent 1px); background-size: 40px 40px; animation: grid-drift 20s linear infinite; }
+        @keyframes spectral-shift { 
+            0% { filter: contrast(1.2) brightness(1) saturate(1.5) hue-rotate(0deg); }
+            100% { filter: contrast(1.8) brightness(1.5) saturate(3) hue-rotate(360deg); }
+        }
+        @keyframes heatmap-pulse {
+            0% { opacity: 0.1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(1.05); }
+            100% { opacity: 0.1; transform: scale(1); }
+        }
+        .deep-scan-active { animation: spectral-shift 0.8s linear infinite; }
+        .neural-heatmap { 
+            position: absolute; inset: 0; pointer-events: none;
+            background: radial-gradient(circle at center, rgba(239, 68, 68, 0.4), rgba(34, 211, 238, 0.1), transparent);
+            mix-blend-mode: color-dodge; animation: heatmap-pulse 2s ease-in-out infinite;
+        }
       `}</style>
 
-      {/* Viewfinder Layer */}
-      <div className="flex-1 relative overflow-hidden flex items-center justify-center">
-        <div className={`absolute inset-0 z-50 bg-white pointer-events-none transition-opacity duration-300 ${isFlashing ? 'opacity-80' : 'opacity-0'}`} />
-        <div className="absolute inset-0 grid-bg opacity-40 pointer-events-none" />
-
+      <div className={`flex-1 relative overflow-hidden flex items-center justify-center ${isDeepScanning ? 'deep-scan-active' : ''}`}>
+        {isDeepScanning && <div className="neural-heatmap z-20" />}
+        
         {rejectionData ? (
-            <div className="absolute inset-0 bg-black/90 backdrop-blur-md z-40 flex flex-col items-center justify-center p-8 text-center animate-in fade-in duration-500">
-                <div className="relative mb-8">
-                    <div className="absolute inset-0 bg-red-500/20 blur-2xl rounded-full animate-pulse" />
-                    <div className="relative w-32 h-32 rounded-full border-4 border-red-500/50 flex items-center justify-center bg-red-900/20">
-                        <X className="w-16 h-16 text-red-400" />
-                    </div>
+            <div className="absolute inset-0 bg-black/90 backdrop-blur-xl z-40 flex flex-col items-center justify-center p-8 text-center animate-in zoom-in duration-300">
+                <div className="w-24 h-24 rounded-full border-4 border-red-500 flex items-center justify-center bg-red-900/20 mb-6 animate-pulse">
+                    <X className="w-12 h-12 text-red-400" />
                 </div>
-                <h2 className="text-3xl font-black text-white uppercase tracking-widest mb-2">Non-Rock Detected</h2>
-                <div className="px-4 py-1 bg-red-500 text-black text-[10px] font-black uppercase tracking-widest mb-6 rounded-sm">No XP Awarded</div>
-                
-                <div className="max-w-md bg-white/5 border border-white/10 rounded-2xl p-6 text-left relative overflow-hidden group">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
-                    <h3 className="text-red-400 text-xs font-black uppercase tracking-widest mb-3 flex items-center gap-2">
-                        <Microscope size={14}/> Clover's Teachable Moment
-                    </h3>
-                    <p className="text-gray-300 text-sm leading-relaxed mb-4 italic">
-                        "{rejectionData.expertExplanation}"
-                    </p>
-                    <div className="text-[10px] text-gray-500 font-mono leading-relaxed bg-black/40 p-3 rounded-lg border border-white/5">
-                        <span className="text-red-400 font-bold">ANALYSIS:</span> {rejectionData.description}
-                    </div>
-                </div>
-
-                <button onClick={reset} className="mt-12 px-8 py-4 bg-white/5 border border-white/10 hover:border-cyan-500/50 rounded-xl text-xs font-black text-cyan-400 uppercase tracking-[0.3em] transition-all flex items-center gap-3">
-                    <RefreshCw size={14} /> Re-Initialize Sensors
-                </button>
+                <h2 className="text-2xl font-black text-white uppercase tracking-tighter mb-2">Protocol B Active</h2>
+                <div className="bg-red-500 text-black px-3 py-0.5 text-[10px] font-black uppercase mb-6 rounded-sm">Non-Geological Asset</div>
+                <p className="text-gray-400 text-sm italic max-w-xs mb-8">"{rejectionData.expertExplanation}"</p>
+                <button onClick={reset} className="px-8 py-3 bg-white/5 border border-white/10 text-cyan-400 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-cyan-500/10">Reset Optics</button>
             </div>
         ) : !imgSrc ? (
-            <Webcam
-                audio={false}
-                ref={webcamRef}
-                screenshotFormat="image/jpeg"
-                videoConstraints={{ facingMode, width: 1280, height: 720 }}
-                className="w-full h-full object-cover"
-            />
+            <div className="w-full h-full relative">
+                <Webcam audio={false} ref={webcamRef} screenshotFormat="image/jpeg" videoConstraints={{ facingMode, width: 1280, height: 720 }} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 pointer-events-none border-[1px] border-cyan-500/20 shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]" />
+            </div>
         ) : (
-          <div className="w-full h-full relative overflow-hidden">
-              <img src={imgSrc} alt="Captured" className="w-full h-full object-cover animate-snap-zoom" />
+          <div className="w-full h-full relative">
+              <img src={imgSrc} alt="Captured" className="w-full h-full object-cover grayscale brightness-75" />
               {isScanning && (
-                  <div className="absolute inset-0 bg-black/70 backdrop-blur-sm z-30 flex flex-col items-center justify-center p-8">
-                      <div className="absolute inset-x-0 h-[2px] bg-cyan-500 shadow-[0_0_25px_#06b6d4] hud-scan" />
-                      <div className="relative w-64 h-64 mb-12 flex items-center justify-center">
-                          <div className="absolute inset-0 border-2 border-cyan-500/30 rounded-full animate-spin-slow" />
-                          <div className="absolute inset-4 border border-indigo-500/20 rounded-full animate-spin-reverse" />
-                          <div className="text-center">
-                              <div className="text-5xl font-black text-white tracking-tighter">{Math.round(analysisProgress)}%</div>
-                              <div className="text-[10px] text-cyan-500 font-bold tracking-[0.2em]">ANALYZING...</div>
+                  <div className="absolute inset-0 bg-black/80 backdrop-blur-md z-30 flex flex-col items-center justify-center p-12">
+                      <div className="relative w-48 h-48 mb-12">
+                          <div className="absolute inset-0 border-2 border-cyan-500/10 rounded-full" />
+                          <div className="absolute inset-0 border-t-2 border-indigo-400 rounded-full animate-spin" />
+                          <div className="absolute inset-0 flex flex-col items-center justify-center">
+                              <span className="text-5xl font-black text-white tracking-tighter drop-shadow-[0_0_10px_rgba(255,255,255,0.5)]">{Math.round(analysisProgress)}%</span>
+                              <span className="text-[8px] text-cyan-500 font-bold uppercase tracking-widest">Inference</span>
                           </div>
                       </div>
-                      <div className="w-full max-w-xs space-y-4">
-                          <div className="flex justify-between items-end">
-                              <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-widest">{ANALYSIS_STAGES[activeStageIndex]?.text}</span>
-                              <span className="text-[8px] text-gray-500">ID: {crypto.randomUUID().slice(0, 8)}</span>
+                      <div className="w-full max-w-xs">
+                          <div className="text-[9px] text-indigo-400 font-bold uppercase mb-2 flex items-center gap-2">
+                            <BrainCircuit size={12} className="animate-pulse" />
+                            {ANALYSIS_STAGES[activeStageIndex]?.text}
                           </div>
-                          <div className="h-1 w-full bg-gray-800 rounded-full overflow-hidden">
-                              <div className="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-white transition-all duration-300" style={{ width: `${analysisProgress}%` }} />
+                          <div className="h-1 w-full bg-gray-950 rounded-full overflow-hidden border border-white/5">
+                              <div className="h-full bg-gradient-to-r from-indigo-500 to-cyan-400 transition-all duration-75" style={{ width: `${analysisProgress}%` }} />
                           </div>
                       </div>
                   </div>
@@ -211,84 +182,79 @@ export const Scanner: React.FC<ScannerProps> = ({ onRockDetected }) => {
         )}
 
         {/* HUD OVERLAY */}
-        {!imgSrc && !rejectionData && (
-          <div className="absolute inset-0 pointer-events-none z-10">
-             <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start bg-gradient-to-b from-black to-transparent">
-                 <div className="space-y-1">
-                     <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest text-cyan-400">
-                         <Activity size={12} className="animate-pulse" />
-                         SENSOR_LINK: ACTIVE
+        {!imgSrc && (
+          <div className="absolute inset-0 pointer-events-none z-10 flex flex-col justify-between p-6">
+             <div className="flex justify-between items-start">
+                 <div className="bg-black/60 backdrop-blur-lg p-4 rounded-2xl border border-white/5 shadow-2xl">
+                     <div className="flex items-center gap-2 text-[10px] font-black text-emerald-400 tracking-widest uppercase">
+                         <Activity size={14} className="animate-pulse" /> THRUPUT: 1.2 GB/S
                      </div>
-                     <div className="text-[8px] text-gray-500">LATENCY: 0.82MS // NEURAL_NET_V4.5</div>
+                     <div className="text-[7px] text-gray-500 mt-1 uppercase font-mono">NEURAL_INF_READY // CLOVER_OS</div>
                  </div>
-                 <div className="text-right">
-                     <div className="text-[10px] text-gray-400">SYS_CLOCK</div>
-                     <div className="text-xs font-bold text-white font-mono">{new Date().toLocaleTimeString([], {hour12: false, hour: '2-digit', minute: '2-digit'})}</div>
+                 <div className="text-right p-4">
+                    <div className="text-[10px] text-gray-400 uppercase font-black">Azimuth: 142.4°</div>
+                    <div className="text-[8px] text-gray-600 font-mono">ALT: 42M // ACC: 99.8%</div>
                  </div>
              </div>
 
              <div className="absolute inset-0 flex items-center justify-center">
-               <div className="relative w-72 h-72 border border-cyan-500/20 rounded-3xl flex items-center justify-center">
-                  <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-cyan-400" />
-                  <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-cyan-400" />
-                  <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-cyan-400" />
-                  <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-cyan-400" />
-                  <div className="absolute inset-x-0 h-[1px] bg-cyan-500/40 hud-scan" />
-                  <Crosshair className="text-cyan-400/50 w-8 h-8" strokeWidth={1} />
-               </div>
+                 <div className="relative w-64 h-64">
+                     <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-cyan-400 shadow-[0_0_10px_#22d3ee]" />
+                     <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-cyan-400 shadow-[0_0_10px_#22d3ee]" />
+                     <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-cyan-400 shadow-[0_0_10px_#22d3ee]" />
+                     <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-cyan-400 shadow-[0_0_10px_#22d3ee]" />
+                     <Crosshair className="absolute inset-0 m-auto text-cyan-400/20 w-12 h-12" strokeWidth={1} />
+                     <div className="absolute inset-x-0 h-[1px] bg-cyan-400/40 top-1/2 animate-[scan-v_2s_linear_infinite]" />
+                 </div>
              </div>
 
-             <div className="absolute bottom-10 left-6 flex items-center gap-3 px-4 py-2 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full">
-                <MapPin size={14} className={locationStatus === 'locked' ? 'text-green-400' : 'text-yellow-400'} />
-                <span className="text-[10px] text-gray-300 font-bold uppercase tracking-widest">
-                    GPS: {locationStatus === 'locked' ? `${location?.lat.toFixed(4)}, ${location?.lng.toFixed(4)}` : 'ACQUIRING...'}
-                </span>
+             <div className="flex justify-between items-end">
+                <div className="flex gap-3">
+                    <button onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')} className="p-5 bg-black/80 rounded-3xl border border-white/10 text-white pointer-events-auto active:scale-90 transition-transform">
+                        <RotateCcw size={24} />
+                    </button>
+                    <button onClick={() => setIsTorchOn(!isTorchOn)} className={`p-5 rounded-3xl border pointer-events-auto transition-all ${isTorchOn ? 'bg-yellow-400 border-yellow-400 text-black shadow-[0_0_20px_#facc15]' : 'bg-black/80 border-white/10 text-white'}`}>
+                        {isTorchOn ? <Flashlight size={24} /> : <FlashlightOff size={24} />}
+                    </button>
+                </div>
+                <div className="bg-black/60 backdrop-blur-md px-5 py-2 rounded-full border border-white/5 flex items-center gap-3">
+                    <MapPin size={12} className="text-cyan-400" />
+                    <span className="text-[10px] font-black text-gray-300 uppercase tracking-widest">{location?.lat.toFixed(4)}, {location?.lng.toFixed(4)}</span>
+                </div>
              </div>
           </div>
         )}
       </div>
 
       {/* Control Deck */}
-      <div className="flex-none bg-black/90 backdrop-blur-2xl border-t border-white/10 p-8 pb-safe z-20">
-        <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onloadend = () => { setImgSrc(reader.result as string); };
-                reader.readAsDataURL(file);
-            }
-        }} />
+      <div className="flex-none bg-[#030508] border-t border-white/5 p-8 pb-safe z-20">
         {!imgSrc ? (
-            <div className="flex justify-between items-center max-w-md mx-auto">
-                <button onClick={() => fileInputRef.current?.click()} className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-cyan-500/10 hover:border-cyan-500/40 transition-all group">
-                    <FileDigit className="w-6 h-6 group-hover:text-cyan-400" />
-                </button>
-                
-                <button onClick={handleCapture} className="relative w-24 h-24 group transition-transform active:scale-95">
-                    <div className="absolute inset-0 bg-cyan-400 rounded-full blur-xl opacity-20 group-hover:opacity-40 transition-opacity" />
-                    <div className="w-full h-full rounded-full border-4 border-cyan-400 flex items-center justify-center p-2">
-                        <div className="w-full h-full bg-white rounded-full transition-transform duration-100 group-hover:scale-90" />
+            <div className="flex flex-col items-center gap-8">
+                <div className="flex items-center gap-4 text-[9px] text-gray-600 font-black tracking-[0.5em] uppercase">
+                    <div className="w-12 h-[1px] bg-white/10" />
+                    Neural Pulse Detection Active
+                    <div className="w-12 h-[1px] bg-white/10" />
+                </div>
+                <button 
+                    onMouseDown={startDeepScan} onMouseUp={cancelDeepScan} onTouchStart={startDeepScan} onTouchEnd={cancelDeepScan}
+                    className="relative w-28 h-28 group"
+                >
+                    <div className={`absolute inset-[-15px] border border-cyan-500/20 rounded-full animate-spin-slow transition-opacity ${isDeepScanning ? 'opacity-100' : 'opacity-0'}`} />
+                    <div className={`absolute inset-0 bg-cyan-400 rounded-full blur-3xl transition-all duration-300 ${isDeepScanning ? 'opacity-60 scale-125' : 'opacity-20 scale-100'}`} />
+                    <div className="w-full h-full rounded-full border-4 border-cyan-400 p-2 flex items-center justify-center bg-black group-active:scale-95 transition-transform z-10 relative">
+                        <div className={`w-full h-full rounded-full bg-white transition-all duration-700 ease-in-out ${isDeepScanning ? 'scale-0 opacity-0' : 'scale-100 opacity-100'}`} />
+                        <BrainCircuit className={`absolute w-10 h-10 text-cyan-400 transition-opacity duration-300 ${isDeepScanning ? 'opacity-100' : 'opacity-0'}`} />
                     </div>
-                </button>
-
-                <button onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')} className="p-5 rounded-2xl bg-white/5 border border-white/10 text-white hover:bg-indigo-500/10 hover:border-indigo-500/40 transition-all group">
-                    <RotateCcw className="w-6 h-6 group-hover:text-indigo-400" />
                 </button>
             </div>
         ) : (
             <div className="flex gap-4 max-w-md mx-auto">
                 {!rejectionData && (
                     <>
-                        <button onClick={reset} disabled={isScanning} className="flex-1 py-5 bg-gray-900 border border-white/10 rounded-2xl text-white font-black uppercase tracking-widest text-xs hover:bg-gray-800 transition-colors">
-                            Purge
-                        </button>
-                        <button 
-                            onClick={handleScan} 
-                            disabled={isScanning} 
-                            className="flex-[2] py-5 bg-cyan-600 rounded-2xl text-white font-black uppercase tracking-widest text-xs shadow-[0_0_25px_rgba(6,182,212,0.4)] hover:bg-cyan-500 transition-all flex items-center justify-center gap-3"
-                        >
+                        <button onClick={reset} disabled={isScanning} className="flex-1 py-5 bg-gray-950 border border-white/5 rounded-3xl text-gray-500 font-black uppercase tracking-widest text-xs hover:text-white transition-colors">Abort</button>
+                        <button onClick={handleScan} disabled={isScanning} className="flex-[2.5] py-5 bg-gradient-to-r from-cyan-600 to-indigo-600 rounded-3xl text-white font-black uppercase tracking-widest text-xs shadow-[0_0_30px_rgba(34,211,238,0.3)] active:scale-95 transition-all flex items-center justify-center gap-3">
                             {isScanning ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
-                            {isScanning ? 'INGESTING...' : 'INITIATE_ANALYSIS'}
+                            {isScanning ? 'INTEGRATING...' : 'EXECUTE_DEEP_ANALYSIS'}
                         </button>
                     </>
                 )}

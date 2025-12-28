@@ -1,3 +1,4 @@
+
 import { Rock, User, Badge, OperatorStats } from '../types';
 
 // Re-export types to maintain compatibility
@@ -173,7 +174,7 @@ const MockDB = {
         const users = mockGet<User[]>('users', []);
         const rocks = mockGet<Rock[]>('rocks', []);
         
-        // Mock activity data
+        // Activity data
         const activityData = Array.from({length: 7}, (_, i) => {
             const d = new Date();
             d.setDate(d.getDate() - i);
@@ -182,7 +183,7 @@ const MockDB = {
 
         return {
             totalUsers: users.length,
-            activeUsers: users.length, // Sim
+            activeUsers: users.length, 
             totalRocks: rocks.length,
             activityData,
             locations: rocks.filter(r => r.location).map(r => r.location!).slice(0, 100)
@@ -219,16 +220,19 @@ export const api = {
     try {
       return await promise;
     } finally {
-      // Add slight decay for visual effect
       setTimeout(() => this.onSyncStatusChange(false), 300);
     }
   },
 
   _getToken: (): string | null => {
-    return localStorage.getItem('token');
+    const token = localStorage.getItem('token');
+    // Bypassing Auth check if mock mode is on and we have a current user
+    if (!token && USE_MOCK_SERVER && localStorage.getItem('current_user_data')) {
+        return 'mock_token_bypass';
+    }
+    return token;
   },
 
-  // Generic error handler for API responses
   async _handleResponse(res: Response): Promise<any> {
     if (!res.ok) {
       let errorMessage = `API Error: HTTP ${res.status}`;
@@ -238,7 +242,7 @@ export const api = {
         errorMessage = errorDetails.message || errorMessage;
       } catch (jsonError) {
         const textError = await res.text();
-        errorMessage = `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}. Details: ${textError.substring(0, 100)}...`;
+        errorMessage = `HTTP ${res.status}: ${res.statusText || 'Unknown Error'}.`;
         console.error('Non-JSON error response from server:', textError);
         errorDetails = { raw: textError };
       }
@@ -250,13 +254,10 @@ export const api = {
     return res.json();
   },
 
-  // --- AUTHENTICATION PROTOCOLS ---
-  
   register(username: string, email: string, password: string): Promise<User> {
     return this._withSyncStatus(this._register(username, email, password));
   },
   async _register(username: string, email: string, password: string): Promise<User> {
-    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
         const user = await MockDB.register(username, email, password);
         localStorage.setItem('token', 'mock_token_' + user.id);
@@ -291,7 +292,6 @@ export const api = {
     return this._withSyncStatus(this._login(email, password));
   },
   async _login(email: string, password: string): Promise<User> {
-    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
         const user = await MockDB.login(email, password);
         localStorage.setItem('token', 'mock_token_' + user.id);
@@ -331,7 +331,6 @@ export const api = {
     const currentUser = this.getCurrentUser();
     if (!currentUser) throw new Error("User session lost");
 
-    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
         const updated = await MockDB.updateProfile(currentUser.id, userData);
         localStorage.setItem('current_user_data', JSON.stringify(updated));
@@ -347,7 +346,7 @@ export const api = {
       body: JSON.stringify(userData)
     });
     const updatedUser = await this._handleResponse(res);
-    localStorage.setItem('current_user_data', JSON.stringify(updatedUser)); // Update stored user data
+    localStorage.setItem('current_user_data', JSON.stringify(updatedUser));
     return updatedUser;
   },
 
@@ -361,8 +360,6 @@ export const api = {
     return stored ? JSON.parse(stored) : null;
   },
 
-  // --- COMMAND CENTER TELEMETRY ---
-
   getAdminStats(): Promise<AdminStats> {
     return this._withSyncStatus(this._getAdminStats());
   },
@@ -370,7 +367,6 @@ export const api = {
     const token = this._getToken();
     if (!token) throw new Error("Authentication required.");
 
-    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
         return MockDB.getAdminStats();
     }
@@ -381,8 +377,6 @@ export const api = {
     return this._handleResponse(res);
   },
 
-  // --- ARCHIVE DATA OPERATIONS ---
-
   getRocks(): Promise<Rock[]> {
     return this._withSyncStatus(this._getRocks());
   },
@@ -392,7 +386,6 @@ export const api = {
     const currentUser = this.getCurrentUser();
     if (!currentUser) throw new Error("User session lost");
 
-    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
         return MockDB.getRocks(currentUser.id);
     }
@@ -410,10 +403,8 @@ export const api = {
     const token = this._getToken();
     if (!token) throw new Error("Authentication required.");
 
-    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
         const response = await MockDB.addRock(rock);
-        // Update local user if stats changed
         const currentUserData = this.getCurrentUser();
         if (currentUserData) {
             const updatedUser = { 
@@ -441,7 +432,6 @@ export const api = {
       body: JSON.stringify(rock)
     });
     const data = await this._handleResponse(res);
-    // Update user stats in local storage after a rock is added
     const currentUserData = this.getCurrentUser();
     if (currentUserData) {
         const updatedUser = { ...currentUserData, xp: data.userStats.xp, level: data.userStats.level };
@@ -457,7 +447,6 @@ export const api = {
     const token = this._getToken();
     if (!token) throw new Error("Authentication required.");
 
-    // MOCK MODE BYPASS
     if (USE_MOCK_SERVER) {
         return MockDB.deleteRock(rockId);
     }
@@ -466,7 +455,6 @@ export const api = {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     });
-    // For delete, we just need to confirm res.ok
     await this._handleResponse(res);
   }
 };

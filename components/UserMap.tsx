@@ -1,60 +1,30 @@
 
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import { Rock, GeologicalZone } from '../types';
-import { Loader2, MapPin, Crosshair, Navigation, LocateFixed, ShieldAlert, Trees, Waves, Mountain } from 'lucide-react';
+import { Loader2, LocateFixed, Navigation, ShieldAlert, Trees, Waves, Mountain, Crosshair, Radar, AlertCircle, ShieldOff, Handshake } from 'lucide-react';
 
 // -- AUDIO ENGINE (Local) --
 const useMapSound = () => {
   const audioCtx = useRef<AudioContext | null>(null);
-
-  const playSound = useCallback((type: 'ping' | 'lock' | 'scan') => {
+  const playSound = useCallback((type: 'ping' | 'lock') => {
     if (!audioCtx.current) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioContextClass) {
-        audioCtx.current = new AudioContextClass();
-      }
+        audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     }
-    const ctx = audioCtx.current;
-    if (ctx && ctx.state === 'suspended') ctx.resume();
-
-    if (!ctx) return;
+    // Fix: Defined 'ctx' to resolve missing reference and improved code readability.
+    const ctx = audioCtx.current!;
+    if (ctx.state === 'suspended') ctx.resume();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
+    osc.connect(gain).connect(ctx.destination);
     const now = ctx.currentTime;
-
     if (type === 'ping') {
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(800, now);
-        osc.frequency.exponentialRampToValueAtTime(400, now + 0.1);
-        gain.gain.setValueAtTime(0.05, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
-        osc.start(now);
-        osc.stop(now + 0.1);
-    } else if (type === 'lock') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(400, now);
-        gain.gain.setValueAtTime(0.05, now);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-        osc.start(now);
-        osc.stop(now + 0.05);
-        
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.type = 'square';
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.frequency.setValueAtTime(400, now + 0.1);
-        gain2.gain.setValueAtTime(0.05, now + 0.1);
-        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
-        osc2.start(now + 0.1);
-        osc2.stop(now + 0.15);
+        osc.type = 'sine'; osc.frequency.setValueAtTime(880, now); osc.frequency.exponentialRampToValueAtTime(440, now + 0.1);
+        gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0, now + 0.1);
+    } else {
+        osc.type = 'square'; osc.frequency.setValueAtTime(440, now); gain.gain.setValueAtTime(0.05, now); gain.gain.linearRampToValueAtTime(0, now + 0.05);
     }
+    osc.start(); osc.stop(now + 0.2);
   }, []);
-
   return playSound;
 };
 
@@ -73,7 +43,6 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
   const [selectedZone, setSelectedZone] = useState<GeologicalZone | null>(null);
   const playSound = useMapSound();
 
-  // Simulated predicted zones
   const predictedZones: GeologicalZone[] = useMemo(() => {
     if (!userLoc) return [];
     return [
@@ -84,18 +53,18 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
         coordinates: [userLoc.lat + 0.005, userLoc.lng + 0.005],
         radius: 300,
         access: 'PUBLIC',
-        description: 'Prime area for Garnet and Epidote formation due to heat from a nearby intrusion.',
-        likelyMinerals: ['Garnet', 'Epidote', 'Chlorite']
+        description: 'Prime area where Garnets and Epidote can form due to heat from a nearby intrusion.',
+        likelyMinerals: ['Garnet', 'Epidote']
       },
       {
         id: 'zone-2',
         type: 'ALLUVIAL',
-        name: 'Bartonville Alluvial Plain',
+        name: 'Alluvial Placer Deposit',
         coordinates: [userLoc.lat - 0.008, userLoc.lng - 0.002],
         radius: 500,
         access: 'PRIVATE',
-        description: 'River-deposited minerals. High probability of finding water-worn Agates or Jasper.',
-        likelyMinerals: ['Agate', 'Jasper', 'Gold Placer']
+        description: 'Rivers have washed heavy minerals downhill for centuries. High probability for Placer Garnets or Agates.',
+        likelyMinerals: ['Agate', 'Jasper', 'Placer Garnet']
       }
     ];
   }, [userLoc]);
@@ -104,8 +73,7 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(
         (pos) => setUserLoc({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-        (err) => console.warn('Loc error', err),
-        { enableHighAccuracy: true }
+        null, { enableHighAccuracy: true }
       );
     }
   }, []);
@@ -113,28 +81,14 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
   useEffect(() => {
     if (mapContainerRef.current && !mapInstanceRef.current && (window as any).L) {
       const L = (window as any).L;
-      const startLat = userLoc?.lat || 37.7749;
-      const startLng = userLoc?.lng || -122.4194;
-      const startZoom = userLoc ? 15 : 4;
-
-      const map = L.map(mapContainerRef.current, {
-          zoomControl: false,
-          attributionControl: false
-      }).setView([startLat, startLng], startZoom);
-      
+      const map = L.map(mapContainerRef.current, { zoomControl: false, attributionControl: false })
+                  .setView([userLoc?.lat || 37.7749, userLoc?.lng || -122.4194], 15);
       mapInstanceRef.current = map;
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
-
       rockLayerRef.current = L.layerGroup().addTo(map);
       zoneLayerRef.current = L.layerGroup().addTo(map);
     }
-
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-      }
-    };
+    return () => { if (mapInstanceRef.current) mapInstanceRef.current.remove(); };
   }, []);
 
   useEffect(() => {
@@ -145,9 +99,12 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
       } else {
         const userIcon = L.divIcon({
           className: 'user-radar-icon',
-          html: `<div class="relative w-4 h-4"><div class="absolute inset-0 bg-cyan-500 rounded-full animate-ping opacity-75"></div><div class="relative w-4 h-4 bg-cyan-400 rounded-full border-2 border-white shadow-[0_0_10px_#22d3ee]"></div></div>`,
-          iconSize: [16, 16],
-          iconAnchor: [8, 8],
+          html: `<div class="relative w-10 h-10 -ml-5 -mt-5">
+                  <div class="absolute inset-0 bg-cyan-500/20 rounded-full animate-[ping_3s_infinite]"></div>
+                  <div class="absolute inset-2 bg-cyan-500/40 rounded-full animate-[ping_2s_infinite]"></div>
+                  <div class="absolute inset-4 bg-cyan-400 rounded-full border-2 border-white shadow-[0_0_15px_#22d3ee]"></div>
+                </div>`,
+          iconSize: [0, 0]
         });
         userMarkerRef.current = L.marker([userLoc.lat, userLoc.lng], { icon: userIcon }).addTo(mapInstanceRef.current);
         mapInstanceRef.current.flyTo([userLoc.lat, userLoc.lng], 15);
@@ -155,35 +112,15 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
     }
   }, [userLoc]);
 
-  // Visualize Prediction Zones
   useEffect(() => {
-    if (mapInstanceRef.current && zoneLayerRef.current && predictedZones.length && (window as any).L) {
+    if (mapInstanceRef.current && zoneLayerRef.current && (window as any).L) {
       const L = (window as any).L;
       zoneLayerRef.current.clearLayers();
-
       predictedZones.forEach(zone => {
-        const color = zone.type === 'METAMORPHIC' ? '#a855f7' : zone.type === 'ALLUVIAL' ? '#3b82f6' : '#ef4444';
-        const circle = L.circle([zone.coordinates[0], zone.coordinates[1]], {
-          color: color,
-          fillColor: color,
-          fillOpacity: 0.15,
-          weight: 1,
-          dashArray: '5, 10'
-        }).addTo(zoneLayerRef.current);
-
-        circle.on('click', () => {
-          playSound('ping');
-          setSelectedZone(zone);
-        });
-
-        // Add a small label icon
-        const zoneIcon = L.divIcon({
-           className: 'zone-label',
-           html: `<div class="flex items-center gap-2 bg-black/60 backdrop-blur px-2 py-1 rounded border border-white/10 text-[8px] font-black text-white uppercase tracking-tighter"><div class="w-1.5 h-1.5 rounded-full" style="background-color: ${color}"></div> ${zone.type}</div>`,
-           iconSize: [80, 20],
-           iconAnchor: [40, 10]
-        });
-        L.marker([zone.coordinates[0], zone.coordinates[1]], { icon: zoneIcon }).addTo(zoneLayerRef.current);
+        const color = zone.type === 'METAMORPHIC' ? '#a855f7' : '#3b82f6';
+        L.circle([zone.coordinates[0], zone.coordinates[1]], {
+          color, fillColor: color, fillOpacity: 0.1, weight: 1, dashArray: '4, 8'
+        }).addTo(zoneLayerRef.current).on('click', () => { playSound('ping'); setSelectedZone(zone); });
       });
     }
   }, [predictedZones, playSound]);
@@ -194,76 +131,108 @@ export const UserMap: React.FC<UserMapProps> = ({ rocks, onRockClick }) => {
       rockLayerRef.current.clearLayers();
       rocks.forEach((rock) => {
         if (rock.location) {
-          let colorClass = 'bg-blue-500';
-          if (rock.type === 'Igneous') colorClass = 'bg-red-500';
-          if (rock.type === 'Sedimentary') colorClass = 'bg-yellow-500';
-          if (rock.type === 'Metamorphic') colorClass = 'bg-purple-500';
-
+          const color = rock.type === 'Igneous' ? 'red' : rock.type === 'Sedimentary' ? 'yellow' : 'cyan';
           const icon = L.divIcon({
-            className: 'custom-pin',
-            html: `<div class="group relative flex items-center justify-center w-8 h-8 cursor-pointer hover:scale-110 transition-transform"><div class="absolute inset-0 ${colorClass} opacity-20 blur-md rounded-full group-hover:opacity-60 transition-opacity"></div><div class="w-3 h-3 ${colorClass} rotate-45 border border-white shadow-lg"></div></div>`,
-            iconSize: [32, 32],
-            iconAnchor: [16, 16],
+            className: 'holo-pin',
+            html: `<div class="group relative flex items-center justify-center w-8 h-8">
+                    <div class="absolute inset-0 bg-${color}-500/30 blur-md rounded-full scale-150 animate-pulse"></div>
+                    <div class="w-2.5 h-2.5 bg-${color}-400 border border-white rotate-45 shadow-[0_0_10px_white]"></div>
+                  </div>`,
+            iconSize: [32, 32], iconAnchor: [16, 16]
           });
-          const marker = L.marker([rock.location.lat, rock.location.lng], { icon });
-          marker.on('click', () => { playSound('lock'); onRockClick(rock); });
-          rockLayerRef.current.addLayer(marker);
+          L.marker([rock.location.lat, rock.location.lng], { icon }).addTo(rockLayerRef.current)
+           .on('click', () => { playSound('lock'); onRockClick(rock); });
         }
       });
     }
   }, [rocks, onRockClick, playSound]);
 
   return (
-    <div className="absolute inset-0 z-0 bg-[#050a10] overflow-hidden">
+    <div className="absolute inset-0 bg-[#030508] overflow-hidden">
       <style>{`
-        .leaflet-container { background: #050a10 !important; }
-        .grid-overlay { background-image: linear-gradient(rgba(6,182,212,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.1) 1px, transparent 1px); background-size: 40px 40px; }
-        @keyframes radar-sweep { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .holographic-filter { filter: url(#chromatic-aberration) contrast(1.2) brightness(0.9); }
+        .grid-overlay { background-image: linear-gradient(rgba(6,182,212,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(6,182,212,0.05) 1px, transparent 1px); background-size: 40px 40px; }
+        @keyframes sector-sweep { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       `}</style>
 
-      <div ref={mapContainerRef} className="absolute inset-0 z-0 opacity-80" />
-      <div className="absolute inset-0 pointer-events-none z-10 grid-overlay" />
-      <div className="absolute inset-0 pointer-events-none z-10 bg-gradient-to-b from-black/60 via-transparent to-black/60" />
+      <svg className="hidden">
+        <defs>
+          <filter id="chromatic-aberration">
+            <feColorMatrix type="matrix" values="1 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="red" />
+            <feOffset in="red" dx="1" dy="0" result="red-offset" />
+            <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 0 1 0" result="green" />
+            <feColorMatrix in="SourceGraphic" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="blue" />
+            <feOffset in="blue" dx="-1" dy="0" result="blue-offset" />
+            <feBlend in="red-offset" in2="green" mode="screen" result="temp" />
+            <feBlend in="temp" in2="blue-offset" mode="screen" />
+          </filter>
+        </defs>
+      </svg>
 
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-4 text-cyan-500/50 font-mono text-[10px] tracking-widest z-20 pointer-events-none">
-          <span>090° N</span> <span>///</span> <span>180° S</span> <span>///</span> <span>270° W</span>
+      <div ref={mapContainerRef} className="absolute inset-0 holographic-filter opacity-70" />
+      <div className="absolute inset-0 pointer-events-none z-10 grid-overlay" />
+      <div className="absolute inset-0 pointer-events-none z-10 bg-[radial-gradient(circle_at_center,transparent_0%,#030508_100%)]" />
+
+      {/* Radar Overlay */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[90vh] h-[90vh] border border-cyan-500/10 rounded-full pointer-events-none z-0">
+          <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,rgba(6,182,212,0.1)_360deg)] animate-[sector-sweep_6s_linear_infinite]" />
       </div>
 
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[80vh] h-[80vh] rounded-full border border-cyan-500/10 pointer-events-none z-0">
-          <div className="absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,transparent_0deg,transparent_270deg,rgba(6,182,212,0.1)_360deg)] animate-[radar-sweep_4s_linear_infinite]" />
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-4 px-6 py-2 bg-black/60 backdrop-blur-xl border border-white/5 rounded-full text-[10px] font-mono text-cyan-400/60 uppercase tracking-[0.4em]">
+          <span>AZM: 142°</span> <span>///</span> <span>DST: 0.8KM</span>
       </div>
 
       {selectedZone && (
         <div className="absolute bottom-32 left-6 right-6 z-30 animate-in slide-in-from-bottom-10">
-          <div className="bg-[#0a0f18]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-5 shadow-2xl relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-4">
-                  <button onClick={() => setSelectedZone(null)} className="text-gray-500 hover:text-white"><Navigation size={16} className="rotate-180" /></button>
-              </div>
-              <div className="flex items-center gap-3 mb-3">
-                  <div className={`p-2 rounded-lg bg-current bg-opacity-20 border border-opacity-30 ${selectedZone.type === 'METAMORPHIC' ? 'text-purple-400 border-purple-500' : 'text-blue-400 border-blue-500'}`}>
-                      {selectedZone.type === 'METAMORPHIC' ? <Mountain size={20} /> : <Waves size={20} />}
+          <div className="bg-[#0a0f18]/90 backdrop-blur-3xl border border-white/10 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-4">
+                    <div className={`p-3 rounded-xl bg-current bg-opacity-20 ${selectedZone.type === 'METAMORPHIC' ? 'text-purple-400' : 'text-blue-400'}`}>
+                        {selectedZone.type === 'METAMORPHIC' ? <Mountain size={24} /> : <Waves size={24} />}
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-black text-white uppercase tracking-wider">{selectedZone.name}</h3>
+                        <div className={`text-[10px] font-bold flex items-center gap-1 ${selectedZone.access === 'PUBLIC' ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {selectedZone.access === 'PUBLIC' ? <ShieldAlert size={10} /> : <ShieldOff size={10} />}
+                            {selectedZone.access} ACCESS
+                        </div>
+                    </div>
                   </div>
-                  <div>
-                      <h3 className="text-sm font-black text-white uppercase tracking-wider">{selectedZone.name}</h3>
-                      <div className={`flex items-center gap-2 text-[9px] font-black uppercase ${selectedZone.access === 'PUBLIC' ? 'text-emerald-400' : 'text-red-400 animate-pulse'}`}>
-                          {selectedZone.access === 'PUBLIC' ? <Trees size={10} /> : <ShieldAlert size={10} />}
-                          {selectedZone.access} ACCESS {selectedZone.access === 'PRIVATE' && ':: PERMISSION REQUIRED'}
-                      </div>
-                  </div>
               </div>
-              <p className="text-[11px] text-gray-400 leading-relaxed italic mb-4">"{selectedZone.description}"</p>
-              <div className="flex gap-2 flex-wrap">
-                  {selectedZone.likelyMinerals.map(m => (
-                    <span key={m} className="px-2 py-1 bg-white/5 border border-white/10 rounded text-[9px] font-bold text-cyan-400">{m}</span>
-                  ))}
+              
+              <div className="space-y-4">
+                <p className="text-xs text-gray-400 italic leading-relaxed">"{selectedZone.description}"</p>
+                
+                {selectedZone.access === 'PRIVATE' ? (
+                  <div className="p-3 bg-red-900/20 border border-red-500/30 rounded-xl space-y-2">
+                    <h4 className="text-[10px] font-black text-red-400 uppercase tracking-widest flex items-center gap-2">
+                        <AlertCircle size={12} /> Ethical Warning
+                    </h4>
+                    <p className="text-[9px] text-gray-300 leading-normal font-sans">
+                        Clover's mandate: **DO NOT TRESPASS**. To collect here, secure legal permission. Identifying the owner and logging legal access earns the **'Diplomat'** achievement (+200 XP).
+                    </p>
+                    <button className="w-full py-2 bg-red-500 text-black text-[9px] font-black uppercase tracking-widest rounded-lg flex items-center justify-center gap-2">
+                        <Handshake size={12} /> Start Diplomat Challenge
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-emerald-900/20 border border-emerald-500/30 rounded-xl space-y-2">
+                    <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">Ethics Protocol</h4>
+                    <p className="text-[9px] text-gray-300 leading-normal font-sans italic">
+                        "Leave No Trace. Log your trip and check the 'Ethical' box for +25 Good Rockhound XP."
+                    </p>
+                  </div>
+                )}
+                
+                <button onClick={() => setSelectedZone(null)} className="w-full py-2 bg-white/5 rounded-lg text-[10px] font-black uppercase text-gray-500">Close Intel Feed</button>
               </div>
           </div>
         </div>
       )}
 
-      <div className="absolute bottom-32 right-4 z-20 flex flex-col gap-2">
-          <button onClick={() => { if (userLoc && mapInstanceRef.current) mapInstanceRef.current.flyTo([userLoc.lat, userLoc.lng], 16); }} className="p-3 bg-black/60 backdrop-blur border border-cyan-500/30 text-cyan-400 rounded-full"><LocateFixed size={20} /></button>
-      </div>
+      <button onClick={() => userLoc && mapInstanceRef.current?.flyTo([userLoc.lat, userLoc.lng], 16)} className="absolute bottom-32 right-6 p-4 bg-black/60 backdrop-blur-xl border border-cyan-500/30 text-cyan-400 rounded-full z-20 shadow-2xl">
+          <LocateFixed size={24} />
+      </button>
     </div>
   );
 };

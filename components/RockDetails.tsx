@@ -1,163 +1,182 @@
-
-import React, { useState, useRef, useEffect, lazy, Suspense, useCallback } from 'react';
+import React, { useState, useRef, useEffect, lazy, Suspense } from 'react';
 import { Rock } from '../types';
-import { ArrowLeft, Trash2, Share2, MapPin, Volume2, Loader2, PauseCircle, Hexagon, Quote, Box, Activity, ScanLine, FileWarning, GitCompare, Zap, Layers, Compass, Microscope } from 'lucide-react';
+// Fixed: Added Activity, Loader2, and ShieldCheck to lucide-react imports
+import { ArrowLeft, Trash2, Volume2, PauseCircle, Layers, Zap, Microscope, TrendingUp, BarChart4, Gem, ChevronRight, Lock, Dna, Info, Activity, Loader2, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { generateRockSpeech } from '../services/geminiService';
-import { decode, decodeAudioData } from '../services/audioUtils';
+import { refineSpecimen, generateRockSpeech } from '../services/geminiService';
 
-const Rock3DViewer = lazy(() => import('./Rock3DModel').then(module => ({ default: module.Rock3DViewer })));
+const Rock3DViewer = lazy(() => import('./Rock3DModel').then(m => ({ default: m.Rock3DViewer })));
 
-const useDetailSound = () => {
-  const audioCtx = useRef<AudioContext | null>(null);
-  const playSound = useCallback((type: 'hover' | 'click' | 'purge' | 'scan') => {
-    if (!audioCtx.current) {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioContextClass) audioCtx.current = new AudioContextClass();
-    }
-    const ctx = audioCtx.current;
-    if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain).connect(ctx.destination);
-    const now = ctx.currentTime;
-    switch (type) {
-        case 'hover': osc.frequency.setValueAtTime(400, now); gain.gain.setValueAtTime(0.02, now); break;
-        case 'click': osc.frequency.setValueAtTime(300, now); gain.gain.setValueAtTime(0.05, now); break;
-        case 'scan': osc.type = 'sawtooth'; osc.frequency.setValueAtTime(100, now); gain.gain.setValueAtTime(0.02, now); break;
-    }
-    osc.start(); osc.stop(now + 0.3);
-  }, []);
-  return playSound;
-};
-
-interface RockDetailsProps {
-  rock: Rock;
-  onBack: () => void;
-  onDelete: (id: string) => void;
-  onStartComparisonMode: (initialRock?: Rock) => void; 
-}
-
-export const RockDetails: React.FC<RockDetailsProps> = ({ rock, onBack, onDelete, onStartComparisonMode }) => {
+export const RockDetails: React.FC<{ rock: Rock; onBack: () => void; onDelete: (id: string) => void; onUpdateRock: (rock: Rock) => void }> = ({ rock, onBack, onDelete, onUpdateRock }) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
-  const [activeTab, setActiveTab] = useState<'DETAILS' | 'NOTES'>('DETAILS');
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const audioBufferRef = useRef<AudioBuffer | null>(null);
-  const playSound = useDetailSound();
+  const [activeTab, setActiveTab] = useState<'DATA' | 'MSc' | 'REFINE'>('DATA');
+  const [isRefining, setIsRefining] = useState(false);
 
-  const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current) {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioContextClass) audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
-    }
-    return audioContextRef.current;
-  }, []);
-
-  const stopAudio = () => {
-    if (audioSourceRef.current) { audioSourceRef.current.stop(); audioSourceRef.current = null; }
-    setIsPlaying(false);
-  };
-
-  const handlePlayAudio = async () => {
-    playSound('click');
-    if (isPlaying) { stopAudio(); return; }
-    if (audioBufferRef.current) { playBuffer(audioBufferRef.current); return; }
-    setIsGeneratingAudio(true);
+  const handleRefine = async () => {
+    if (rock.refinementLevel >= 3) return;
+    setIsRefining(true);
     try {
-      const ctx = getAudioContext();
-      const speechText = activeTab === 'NOTES' ? rock.expertExplanation : rock.description;
-      const result = await generateRockSpeech(speechText);
-      const audioBytes = decode(result.audioData);
-      const buffer = await decodeAudioData(audioBytes, ctx!, 24000, 1);
-      audioBufferRef.current = buffer;
-      playBuffer(buffer);
-    } catch { toast.error("Audio failure"); } finally { setIsGeneratingAudio(false); }
-  };
-
-  const playBuffer = (buffer: AudioBuffer) => {
-    const ctx = getAudioContext();
-    if (ctx?.state === 'suspended') ctx.resume();
-    const source = ctx!.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ctx!.destination);
-    source.onended = () => setIsPlaying(false);
-    source.start();
-    audioSourceRef.current = source;
-    setIsPlaying(true);
+      const updates = await refineSpecimen(rock);
+      const updatedRock = { ...rock, ...updates, refinementLevel: rock.refinementLevel + 1 };
+      onUpdateRock(updatedRock);
+      toast.success(`REFINE COMPLETE: LEVEL ${updatedRock.refinementLevel} UNLOCKED`, { icon: '💎' });
+    } catch { toast.error("Refinement Signal Lost"); }
+    finally { setIsRefining(false); }
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#050a10] overflow-y-auto no-scrollbar font-sans relative">
-      <div className="relative h-[40vh] flex-none overflow-hidden group">
-         <img src={rock.imageUrl} className="w-full h-full object-cover opacity-80" />
-         <div className="absolute inset-0 bg-gradient-to-t from-[#050a10] to-transparent" />
-         <button onClick={() => { playSound('click'); onBack(); }} className="absolute top-safe mt-6 left-6 p-3 rounded-full bg-black/40 border border-white/10 backdrop-blur-md z-20"><ArrowLeft className="w-5 h-5" /></button>
-         <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
-            <span className="px-2 py-0.5 border border-cyan-500/30 bg-cyan-900/30 text-cyan-400 text-[9px] font-bold uppercase tracking-[0.2em] rounded mb-2 inline-block">{rock.type}</span>
-            <h1 className="text-4xl font-bold text-white tracking-tighter drop-shadow-2xl">{rock.name.toUpperCase()}</h1>
+    <div className="h-full flex flex-col bg-[#030508] overflow-y-auto no-scrollbar pb-24 relative font-sans">
+      <div className="relative h-[38vh] flex-none overflow-hidden">
+         <img src={rock.imageUrl} className="w-full h-full object-cover opacity-40 scale-125 blur-md absolute" />
+         <div className="absolute inset-0 bg-gradient-to-t from-[#030508] via-[#030508]/60 to-transparent" />
+         
+         <div className="absolute inset-0 p-8 flex flex-col justify-end">
+            <button onClick={onBack} className="absolute top-12 left-6 p-4 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-xl z-20 active:scale-90 transition-transform">
+                <ArrowLeft className="w-6 h-6" />
+            </button>
+            <div className="relative z-10 animate-in slide-in-from-bottom-4 duration-700">
+                <div className="flex items-center gap-2 mb-3">
+                    <span className="px-3 py-0.5 bg-indigo-500/20 text-indigo-400 text-[9px] font-black uppercase tracking-[0.4em] rounded-full border border-indigo-500/30">
+                        {rock.type} Asset
+                    </span>
+                    <span className="px-3 py-0.5 bg-cyan-500/20 text-cyan-400 text-[9px] font-black uppercase tracking-[0.4em] rounded-full border border-cyan-500/30">
+                        Level {rock.refinementLevel}
+                    </span>
+                </div>
+                <h1 className="text-6xl font-black text-white tracking-tighter uppercase italic leading-none">{rock.name}</h1>
+            </div>
          </div>
       </div>
 
-      <div className="flex-none px-6 mt-4 flex gap-2">
-          <button onClick={() => { setActiveTab('DETAILS'); stopAudio(); audioBufferRef.current = null; }} className={`px-4 py-2 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all ${activeTab === 'DETAILS' ? 'bg-cyan-500 text-black' : 'bg-white/5 text-gray-500 border border-white/10'}`}>Specimen Data</button>
-          <button onClick={() => { setActiveTab('NOTES'); stopAudio(); audioBufferRef.current = null; }} className={`px-4 py-2 rounded-lg text-[10px] font-bold tracking-widest uppercase transition-all flex items-center gap-2 ${activeTab === 'NOTES' ? 'bg-emerald-500 text-black' : 'bg-white/5 text-gray-500 border border-white/10'}`}><Microscope size={12}/> Clover's Field Notes</button>
+      <div className="flex px-6 gap-2 mt-6 overflow-x-auto no-scrollbar">
+          <TabBtn active={activeTab === 'DATA'} onClick={() => setActiveTab('DATA')} label="Specimen" icon={Zap} />
+          <TabBtn active={activeTab === 'MSc'} onClick={() => setActiveTab('MSc')} label="Intelligence" icon={Microscope} />
+          <TabBtn active={activeTab === 'REFINE'} onClick={() => setActiveTab('REFINE')} label="Refine" icon={Gem} color="indigo" />
       </div>
 
-      <div className="flex-1 p-6 space-y-6">
-        {activeTab === 'DETAILS' ? (
-            <>
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-6 relative">
-                    <div className="absolute top-0 left-0 w-1 h-full bg-cyan-500" />
-                    <p className="text-gray-300 text-sm leading-relaxed">{rock.description}</p>
+      <div className="p-6 space-y-6">
+        {activeTab === 'DATA' && (
+            <div className="animate-in fade-in duration-500 space-y-6">
+                <div className="grid grid-cols-2 gap-4">
+                    <DataCard label="Market Value" value={`${rock.estimatedValue} CR`} icon={TrendingUp} color="yellow" />
+                    <DataCard label="Hardness" value={`${rock.hardness} Mohs`} icon={Info} color="cyan" />
                 </div>
-                <div className="h-64 w-full bg-black/40 rounded-3xl border border-white/10 overflow-hidden relative">
-                    <Suspense fallback={<div className="flex h-full items-center justify-center"><Loader2 className="animate-spin text-cyan-500" /></div>}>
+
+                <div className="bg-white/5 border border-white/10 rounded-3xl p-6 relative overflow-hidden group">
+                    <p className="text-gray-300 text-lg leading-relaxed mb-6 font-medium">"{rock.description}"</p>
+                    <div className="h-16 flex items-end gap-1 mb-3 opacity-50">
+                        {rock.spectralWaveform.map((v, i) => (
+                            <div key={i} className="flex-1 bg-cyan-400 rounded-t-sm animate-pulse" style={{ height: `${v * 100}%`, animationDelay: `${i * 0.05}s` }} />
+                        ))}
+                    </div>
+                </div>
+
+                <div className="h-[45vh] bg-black border border-white/5 rounded-3xl overflow-hidden relative shadow-2xl">
+                    <Suspense fallback={<div className="h-full flex items-center justify-center text-cyan-500 font-mono text-xs animate-pulse">SYNCHRONIZING VOXELS...</div>}>
                         <Rock3DViewer modelUrl="https://aistudiocdn.com/assets/rock.glb" rock={rock} />
                     </Suspense>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <StatBox label="Hardness" value={`${rock.hardness}/10`} icon={Layers} color="indigo" />
-                    <StatBox label="Rarity" value={`${rock.rarityScore}%`} icon={Zap} color="amber" />
-                </div>
-            </>
-        ) : (
-            <div className="space-y-6 animate-in slide-in-from-right duration-300">
-                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-6 relative">
-                    <h3 className="text-emerald-400 text-xs font-black uppercase tracking-widest mb-3 flex items-center gap-2"><Microscope size={14}/> Geologist's Explanation</h3>
-                    <p className="text-emerald-50/90 text-sm italic leading-relaxed">"{rock.expertExplanation}"</p>
-                </div>
-                <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
-                    <h3 className="text-gray-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-4">Formation Genesis</h3>
-                    <p className="text-gray-300 text-xs font-mono leading-loose">{rock.formationGenesis}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <StatBox label="Rarity Bonus" value={`+${rock.bonusXP.rarity} XP`} icon={Zap} color="emerald" />
-                    <StatBox label="Expert Eye" value={`+${rock.bonusXP.expertEye} XP`} icon={Compass} color="emerald" />
                 </div>
             </div>
         )}
 
-        <div className="flex justify-center gap-4 py-8">
-            <button onClick={handlePlayAudio} className={`p-4 rounded-full border transition-all ${isPlaying ? 'bg-indigo-600 border-indigo-400' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-                {isGeneratingAudio ? <Loader2 className="animate-spin" /> : isPlaying ? <PauseCircle /> : <Volume2 />}
-            </button>
-            <button onClick={() => { if(window.confirm('Purge this asset?')) onDelete(rock.id); }} className="px-6 py-3 rounded-xl bg-red-900/10 border border-red-500/30 text-red-400 text-xs font-bold uppercase tracking-widest flex items-center gap-2"><Trash2 size={14} /> Purge</button>
-        </div>
+        {activeTab === 'MSc' && (
+            <div className="animate-in slide-in-from-right duration-500 space-y-6">
+                <InsightSection title="Clover's Analysis" text={rock.expertExplanation} icon={Microscope} color="indigo" />
+                
+                {rock.refinementLevel >= 2 ? (
+                    <InsightSection title="Geological Lore" text={rock.geologicalLore!} icon={Dna} color="emerald" />
+                ) : (
+                    <LockedSection level={2} label="Historical Lore" />
+                )}
+
+                {rock.refinementLevel >= 3 ? (
+                    <InsightSection title="Molecular Structure" text={rock.molecularStructure!} icon={Activity} color="purple" />
+                ) : (
+                    <LockedSection level={3} label="Molecular Data" />
+                )}
+            </div>
+        )}
+
+        {activeTab === 'REFINE' && (
+            <div className="animate-in zoom-in duration-500 space-y-8">
+                <div className="text-center space-y-2">
+                    <h3 className="text-2xl font-black text-white uppercase tracking-tighter">Specimen Refinement</h3>
+                    <p className="text-gray-500 text-sm">Deepen scientific analysis using Laboratory Credits.</p>
+                </div>
+
+                <div className="relative flex justify-center">
+                   <div className="absolute inset-0 bg-indigo-500/20 blur-[100px] rounded-full" />
+                   <div className="relative w-48 h-48 rounded-full border-4 border-dashed border-indigo-500/30 flex items-center justify-center animate-[spin_20s_linear_infinite]">
+                        <Gem className="w-16 h-16 text-indigo-400" />
+                   </div>
+                   <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-4xl font-black text-white">{rock.refinementLevel}/3</span>
+                   </div>
+                </div>
+
+                <div className="space-y-4">
+                    <RefineStep level={1} active={rock.refinementLevel >= 1} label="Basic Spectral Signature" />
+                    <RefineStep level={2} active={rock.refinementLevel >= 2} label="Unlock Historical Lore" />
+                    <RefineStep level={3} active={rock.refinementLevel >= 3} label="Analyze Molecular Geometry" />
+                </div>
+
+                <button 
+                    disabled={isRefining || rock.refinementLevel >= 3} 
+                    onClick={handleRefine}
+                    className={`w-full py-6 rounded-3xl font-black uppercase tracking-[0.4em] text-sm transition-all flex items-center justify-center gap-4 ${rock.refinementLevel >= 3 ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30' : 'bg-indigo-600 text-white shadow-2xl shadow-indigo-500/40 hover:scale-[1.02] active:scale-95'}`}
+                >
+                    {isRefining ? <Loader2 className="animate-spin" /> : rock.refinementLevel >= 3 ? <ShieldCheck /> : <Zap />}
+                    {isRefining ? 'REFRACTING...' : rock.refinementLevel >= 3 ? 'MAX_REFINEMENT_REACHED' : 'EXECUTE_REFINEMENT (500 CR)'}
+                </button>
+            </div>
+        )}
       </div>
     </div>
   );
 };
 
-const StatBox: React.FC<{ label: string; value: string; icon: any; color: string }> = ({ label, value, icon: Icon, color }) => {
-    const colors: any = { indigo: 'text-indigo-400 border-indigo-500/30', amber: 'text-amber-400 border-amber-500/30', emerald: 'text-emerald-400 border-emerald-500/30' };
-    return (
-        <div className={`p-4 bg-white/5 border ${colors[color]} rounded-xl`}>
-            <Icon className="w-4 h-4 mb-2 opacity-80" />
-            <div className="text-lg font-bold text-white">{value}</div>
-            <div className="text-[9px] text-gray-500 uppercase font-bold tracking-widest">{label}</div>
+const TabBtn = ({ active, onClick, label, icon: Icon, color = 'cyan' }: any) => (
+    <button onClick={onClick} className={`flex-none px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-3 ${active ? `bg-${color}-500 text-black shadow-lg` : 'bg-white/5 text-gray-500 border border-white/10'}`}>
+        <Icon size={14} /> {label}
+    </button>
+);
+
+const DataCard = ({ label, value, icon: Icon, color }: any) => (
+    <div className="p-6 bg-white/5 border border-white/10 rounded-3xl">
+        <div className={`flex items-center gap-2 text-${color}-400 mb-2`}>
+            <Icon size={14} />
+            <span className="text-[9px] font-black uppercase tracking-widest opacity-60">{label}</span>
         </div>
-    );
-};
+        <div className="text-3xl font-black text-white tracking-tighter">{value}</div>
+    </div>
+);
+
+const InsightSection = ({ title, text, icon: Icon, color }: any) => (
+    <div className={`bg-${color}-500/5 border border-${color}-500/20 rounded-3xl p-6 space-y-4`}>
+        <div className={`flex items-center gap-3 text-${color}-400`}>
+            <Icon size={18} />
+            <h3 className="text-xs font-black uppercase tracking-[0.2em]">{title}</h3>
+        </div>
+        <p className="text-gray-200 text-base leading-relaxed font-medium">"{text}"</p>
+    </div>
+);
+
+const LockedSection = ({ level, label }: any) => (
+    <div className="bg-white/5 border border-dashed border-white/10 rounded-3xl p-10 flex flex-col items-center justify-center text-center space-y-4 grayscale">
+        <Lock className="w-8 h-8 text-gray-700" />
+        <div>
+            <h4 className="text-gray-500 text-xs font-black uppercase">Level {level} Required</h4>
+            <p className="text-[10px] text-gray-700 font-mono mt-1">REFINE_SPECIMEN_TO_UNLOCK_{label.toUpperCase()}</p>
+        </div>
+    </div>
+);
+
+const RefineStep = ({ level, active, label }: any) => (
+    <div className={`flex items-center justify-between p-5 rounded-2xl border transition-all ${active ? 'bg-indigo-500/10 border-indigo-500/40 text-indigo-400' : 'bg-black border-white/5 text-gray-600'}`}>
+        <div className="flex items-center gap-4">
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs ${active ? 'bg-indigo-500 text-black' : 'bg-gray-900'}`}>{level}</div>
+            <span className="text-xs font-bold uppercase tracking-widest">{label}</span>
+        </div>
+        {active && <ShieldCheck size={18} />}
+    </div>
+);

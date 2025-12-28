@@ -1,277 +1,192 @@
 
-// Removed redundant @react-three/fiber reference to fix type resolution error.
-import React, { useRef, useMemo, useState, useEffect } from 'react';
-import { Canvas, useFrame } from '@react-three/fiber';
-import { Environment, Float, Sparkles, Trail, Sphere } from '@react-three/drei';
+import React, { useRef, useMemo } from 'react';
+import { Canvas, useFrame, extend } from '@react-three/fiber';
+import { Environment, shaderMaterial } from '@react-three/drei';
+import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import * as THREE from 'three';
 
-interface Clover3DModelProps {
-  isTalking: boolean;
-  currentViseme: number; // 0-21
-  audioPlaybackTime?: number;
-  mood?: string;
+type CloverMood = 'IDLE' | 'LISTENING' | 'THINKING';
+
+interface CloverAvatarProps {
+  mood: CloverMood;
+  listeningAmplitude: number; // A value from 0-255 from Web Audio AnalyserNode
 }
 
-const MOOD_COLORS: Record<string, string> = {
-    'ANALYTICAL': '#22d3ee', // Cyan
-    'EXCITED': '#facc15',    // Yellow
-    'SERIOUS': '#ef4444',    // Red
-    'WITTY': '#e879f9',      // Fuchsia
-    'ENCOURAGING': '#4ade80',// Green
-    'PROFESSIONAL': '#22d3ee',
-    'DEFAULT': '#22d3ee'
-};
-
-// -- ADVANCED HOLOGRAPHIC SHADER --
-// Simulates a volumetric projection with scanlines, fresnel rim lighting, 
-// and vertex displacement based on audio amplitude.
+// --- 1. THE GLSL SHADERS ---
 
 const vertexShader = `
-  uniform float time;
-  uniform float talkIntensity; // Driven by viseme (0.0 - 1.0)
-  
-  varying vec2 vUv;
   varying vec3 vNormal;
   varying float vDisplacement;
+  uniform float uTime;
+  uniform float uNoiseStrength;
+  uniform float uNoiseSpeed;
 
-  // Pseudo-random noise
-  float random(vec2 st) {
-      return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+  // Simplex 3D Noise (snoise) - a higher quality, self-contained noise function.
+  vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+  vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+  vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+  vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+  
+  float snoise(vec3 v) {
+    const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+    const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+    vec3 i  = floor(v + dot(v, C.yyy) );
+    vec3 x0 = v - i + dot(i, C.xxx) ;
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min( g.xyz, l.zxy );
+    vec3 i2 = max( g.xyz, l.zxy );
+    vec3 x1 = x0 - i1 + C.xxx;
+    vec3 x2 = x0 - i2 + C.yyy;
+    vec3 x3 = x0 - D.yyy;
+    i = mod289(i);
+    vec4 p = permute( permute( permute(
+              i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+            + i.y + vec4(0.0, i1.y, i2.y, 1.0 ))
+            + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+    float n_ = 0.142857142857;
+    vec3  ns = n_ * D.wyz - D.xzx;
+    vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_ );
+    vec4 x = x_ *ns.x + ns.yyyy;
+    vec4 y = y_ *ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+    vec4 b0 = vec4( x.xy, y.xy );
+    vec4 b1 = vec4( x.zw, y.zw );
+    vec4 s0 = floor(b0)*2.0 + 1.0;
+    vec4 s1 = floor(b1)*2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+    vec3 p0 = vec3(a0.xy,h.x);
+    vec3 p1 = vec3(a0.zw,h.y);
+    vec3 p2 = vec3(a1.xy,h.z);
+    vec3 p3 = vec3(a1.zw,h.w);
+    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3) ) );
   }
 
   void main() {
-    vUv = uv;
-    vNormal = normalize(normalMatrix * normal);
-    
-    // 1. Audio Ripple Effect
-    // Waves move up the mesh based on time
-    float ripple = sin(time * 15.0 - position.y * 10.0) * 0.05 * talkIntensity;
-    
-    // 2. Glitch Jitter
-    // Random vertices snap out of place when talking loudly
-    float jitter = step(0.95, random(vec2(time * 2.0, position.y))) * 0.1 * talkIntensity;
-    
-    // 3. Breathing Pulse
-    float breath = sin(time * 2.0) * 0.02;
-
-    // Apply displacement along normal
-    vDisplacement = ripple + jitter + breath;
-    vec3 newPos = position + normal * vDisplacement;
-    
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPos, 1.0);
+    vNormal = normal;
+    float noiseVal = snoise(position * 2.0 + uTime * uNoiseSpeed);
+    vDisplacement = noiseVal;
+    vec3 newPosition = position + normal * (noiseVal * uNoiseStrength);
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
   }
 `;
 
 const fragmentShader = `
-  uniform float time;
-  uniform vec3 color;
-  uniform float talkIntensity;
-  
-  varying vec2 vUv;
+  uniform float uTime;
+  uniform float uIsThinking;
+  uniform vec3 uColorCenter;
+  uniform vec3 uColorEdge1;
+  uniform vec3 uColorEdge2;
+  uniform vec3 uColorGold;
   varying vec3 vNormal;
   varying float vDisplacement;
 
   void main() {
-    // 1. High-Tech Scanlines
-    float scanline = sin(vUv.y * 150.0 + time * -5.0) * 0.5 + 0.5;
+    float fresnel = pow(1.0 - abs(dot(vNormal, vec3(0.0, 0.0, 1.0))), 3.0);
+    vec3 colorMix = mix(uColorCenter, uColorEdge1, fresnel);
+    vec3 finalColor = mix(colorMix, uColorEdge2, fresnel * 0.5 + vDisplacement * 0.5);
     
-    // 2. Fresnel Rim Light (The "Ghost" Effect)
-    vec3 viewDir = vec3(0.0, 0.0, 1.0); // Simplified view dir
-    float fresnel = pow(1.0 - dot(vNormal, viewDir), 2.5);
-    
-    // 3. Core Pulse
-    // Brighter in the center, pulsing with time
-    float coreGlow = 0.5 + 0.5 * sin(time * 3.0);
-    
-    // Compose Color
-    // Base color + Rim Light + Audio Reaction Brightness
-    vec3 finalColor = color * (0.1 + scanline * 0.2);
-    finalColor += color * fresnel * 2.5; // Strong rim light
-    finalColor += vec3(1.0) * talkIntensity * scanline * 0.8; // White hot flashes when talking
-    
-    // Opacity Logic
-    // Edges are opaque, center is semi-transparent (Volume effect)
-    float alpha = 0.1 + fresnel * 0.9 + talkIntensity * 0.3;
+    // Rapidly flash to gold when thinking, fulfilling the original spec
+    vec3 thinkingColor = mix(finalColor, uColorGold, sin(uTime * 20.0) * 0.5 + 0.5);
+    finalColor = mix(finalColor, thinkingColor, uIsThinking);
 
-    gl_FragColor = vec4(finalColor, alpha);
+    gl_FragColor = vec4(finalColor, fresnel * 1.2 + 0.1);
   }
 `;
 
-const CoreMesh: React.FC<{ isTalking: boolean; visemeIntensity: number; color: THREE.Color }> = ({ isTalking, visemeIntensity, color }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const materialRef = useRef<THREE.ShaderMaterial>(null);
+// Combine all uniforms needed by both shaders
+const LiquidGemMaterial = shaderMaterial(
+  {
+    uTime: 0,
+    uNoiseSpeed: 0.5,
+    uNoiseStrength: 0.2,
+    uIsThinking: 0.0,
+    uColorCenter: new THREE.Color('#220033'),
+    uColorEdge1: new THREE.Color('#aa00ff'),
+    uColorEdge2: new THREE.Color('#00ffff'),
+    uColorGold: new THREE.Color('#FFD700'),
+  },
+  vertexShader,
+  fragmentShader
+);
+extend({ LiquidGemMaterial });
 
-  const shaderArgs = useMemo(() => ({
-    uniforms: {
-      time: { value: 0 },
-      color: { value: new THREE.Color('#22d3ee') },
-      talkIntensity: { value: 0 }
-    },
-    vertexShader,
-    fragmentShader,
-    transparent: true,
-    side: THREE.DoubleSide,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-  }), []);
+// --- 2. THE REACT COMPONENT ---
 
+const LiquidSphere: React.FC<CloverAvatarProps> = ({ mood, listeningAmplitude }) => {
+  const materialRef = useRef<any>(null); // Use 'any' to avoid TS issues with custom uniforms
+
+  const targetState = useMemo(() => {
+    // The analyser node gives a 0-255 value. We'll normalize it, treating ~140 as max for a strong effect.
+    const amplitudeFactor = Math.min(1.0, listeningAmplitude / 140.0);
+    switch (mood) {
+      case 'LISTENING':
+        return {
+          speed: 1.5 + amplitudeFactor * 4.0, // Reacts to audio amplitude
+          strength: 0.2 + amplitudeFactor * 0.4,
+          isThinking: 0.0,
+        };
+      case 'THINKING':
+        return {
+          speed: 4.0, // Fast, boiling motion
+          strength: 0.3,
+          isThinking: 1.0, // Triggers shader color shift
+        };
+      case 'IDLE':
+      default:
+        return {
+          speed: 0.4, // Slow, gentle motion
+          strength: 0.15,
+          isThinking: 0.0,
+        };
+    }
+  }, [mood, listeningAmplitude]);
+  
   useFrame((state, delta) => {
-    if (!meshRef.current || !materialRef.current) return;
-
-    // Rotate the core slowly
-    meshRef.current.rotation.y -= delta * 0.2;
-    meshRef.current.rotation.z += delta * 0.1;
-
-    // Update Uniforms
-    materialRef.current.uniforms.time.value = state.clock.elapsedTime;
+    if (!materialRef.current) return;
+    const mat = materialRef.current;
+    mat.uTime = state.clock.elapsedTime;
     
-    // Lerp Color based on Mood
-    materialRef.current.uniforms.color.value.lerp(color, delta * 2);
-    
-    // Smoothly interpolate the talking intensity for the shader
-    const targetIntensity = isTalking ? 0.2 + (visemeIntensity / 21) * 0.8 : 0;
-    materialRef.current.uniforms.talkIntensity.value = THREE.MathUtils.lerp(
-      materialRef.current.uniforms.talkIntensity.value,
-      targetIntensity,
-      delta * 15 // Speed of reaction
-    );
+    // Smoothly interpolate (Lerp) values for organic transitions
+    mat.uNoiseSpeed = THREE.MathUtils.lerp(mat.uNoiseSpeed, targetState.speed, delta * 5);
+    mat.uNoiseStrength = THREE.MathUtils.lerp(mat.uNoiseStrength, targetState.strength, delta * 10);
+    mat.uIsThinking = THREE.MathUtils.lerp(mat.uIsThinking, targetState.isThinking, delta * 5);
   });
 
   return (
-    <mesh ref={meshRef}>
-      <icosahedronGeometry args={[1, 6]} /> {/* High poly for smooth ripples */}
-      <shaderMaterial ref={materialRef} args={[shaderArgs]} />
+    <mesh scale={1.8}>
+      <icosahedronGeometry args={[1, 64]} />
+      {/* @ts-ignore */}
+      <liquidGemMaterial ref={materialRef} transparent depthWrite={false} blending={THREE.AdditiveBlending} />
     </mesh>
   );
 };
 
-// -- DIGITAL EYES COMPONENT --
-// Holographic eyes that blink and squint based on speech
-const Eyes: React.FC<{ isTalking: boolean; visemeIntensity: number; color: THREE.Color }> = ({ isTalking, visemeIntensity, color }) => {
-    const groupRef = useRef<THREE.Group>(null);
-    const [blink, setBlink] = useState(false);
-
-    // Random blinking logic
-    useEffect(() => {
-        const triggerBlink = () => {
-            setBlink(true);
-            setTimeout(() => setBlink(false), 150);
-            setTimeout(triggerBlink, 3000 + Math.random() * 4000);
-        };
-        const timer = setTimeout(triggerBlink, 3000);
-        return () => clearTimeout(timer);
-    }, []);
-
-    useFrame((state, delta) => {
-        if (groupRef.current) {
-            // Squint when talking loudly (visemeIntensity > 10)
-            const targetScaleY = blink ? 0.05 : (isTalking && visemeIntensity > 10) ? 0.4 : 1;
-            
-            groupRef.current.scale.set(1, THREE.MathUtils.lerp(groupRef.current.scale.y, targetScaleY, delta * 20), 1);
-            
-            // Look slightly at "camera" (mouse interaction could be added here)
-            groupRef.current.rotation.y = Math.sin(state.clock.elapsedTime * 0.5) * 0.1;
-        }
-    });
-
-    return (
-        <group ref={groupRef} position={[0, 0.2, 0.8]}>
-            {/* Left Eye */}
-            <mesh position={[-0.35, 0, 0]} rotation={[0, 0.2, 0]}>
-                <planeGeometry args={[0.35, 0.12]} />
-                <meshBasicMaterial color={color} toneMapped={false} side={THREE.DoubleSide} transparent opacity={0.9} />
-            </mesh>
-            {/* Right Eye */}
-            <mesh position={[0.35, 0, 0]} rotation={[0, -0.2, 0]}>
-                <planeGeometry args={[0.35, 0.12]} />
-                <meshBasicMaterial color={color} toneMapped={false} side={THREE.DoubleSide} transparent opacity={0.9} />
-            </mesh>
-        </group>
-    );
-};
-
-const ContainmentRing: React.FC<{ radius: number; speed: number; axis: 'x' | 'y' | 'z'; color: THREE.Color }> = ({ radius, speed, axis, color }) => {
-    const ref = useRef<THREE.Group>(null);
-    
-    useFrame((_, delta) => {
-        if (ref.current) {
-            if (axis === 'x') ref.current.rotation.x += delta * speed;
-            if (axis === 'y') ref.current.rotation.y += delta * speed;
-            if (axis === 'z') ref.current.rotation.z += delta * speed;
-        }
-    });
-
-    return (
-        <group ref={ref}>
-            <mesh rotation={[Math.PI / 2, 0, 0]}>
-                <torusGeometry args={[radius, 0.02, 16, 100]} />
-                <meshBasicMaterial color={color} transparent opacity={0.3} blending={THREE.AdditiveBlending} />
-            </mesh>
-            <group rotation={[Math.PI / 2, 0, 0]}>
-                <group position={[radius, 0, 0]}>
-                    <Trail width={2} length={8} color={color} attenuation={(t) => t * t}>
-                        <mesh>
-                            <sphereGeometry args={[0.08, 16, 16]} />
-                            <meshBasicMaterial color="#ffffff" toneMapped={false} />
-                        </mesh>
-                    </Trail>
-                </group>
-            </group>
-        </group>
-    );
-};
-
-const DataCloud: React.FC<{ color: string }> = ({ color }) => {
-    const ref = useRef<THREE.Group>(null);
-    useFrame((_, delta) => {
-        if (ref.current) ref.current.rotation.y += delta * 0.05;
-    });
-
-    return (
-        <group ref={ref}>
-            <Sparkles 
-                count={40} 
-                scale={4} 
-                size={4} 
-                speed={0.4} 
-                opacity={0.5} 
-                color={color}
-            />
-        </group>
-    )
-}
-
-export const Clover3DModel: React.FC<Clover3DModelProps> = ({ isTalking, currentViseme, mood = 'DEFAULT' }) => {
-  const targetColor = useMemo(() => new THREE.Color(MOOD_COLORS[mood] || MOOD_COLORS['DEFAULT']), [mood]);
-  const sparkleColor = MOOD_COLORS[mood] || MOOD_COLORS['DEFAULT'];
-
+export const CloverAvatar: React.FC<CloverAvatarProps> = (props) => {
   return (
-    <Canvas camera={{ position: [0, 0, 5], fov: 40 }} gl={{ alpha: true, antialias: true }}>
-      <ambientLight intensity={0.5} />
-      <pointLight position={[10, 10, 10]} intensity={1} color={targetColor} />
-      <pointLight position={[-10, -5, -10]} intensity={0.5} color="#4f46e5" />
-
-      <Float speed={2} rotationIntensity={0.2} floatIntensity={0.5}>
-        <group scale={[1.2, 1.2, 1.2]}>
-            {/* The Brain */}
-            <CoreMesh isTalking={isTalking} visemeIntensity={currentViseme} color={targetColor} />
-            
-            {/* Digital Eyes */}
-            <Eyes isTalking={isTalking} visemeIntensity={currentViseme} color={targetColor} />
-            
-            {/* The Gyroscope Structure */}
-            <ContainmentRing radius={1.4} speed={0.5} axis="x" color={targetColor} />
-            <ContainmentRing radius={1.6} speed={0.3} axis="y" color={targetColor} />
-            <ContainmentRing radius={1.8} speed={0.4} axis="z" color={targetColor} />
-            
-            {/* Atmosphere */}
-            <DataCloud color={sparkleColor} />
-        </group>
-      </Float>
-
+    <Canvas camera={{ position: [0, 0, 5], fov: 50 }} gl={{ alpha: true, antialias: true }}>
+      <ambientLight intensity={0.2} />
+      <directionalLight position={[0, 5, 5]} intensity={1} />
+      <LiquidSphere {...props} />
       <Environment preset="city" />
+      <EffectComposer disableNormalPass>
+        <Bloom 
+            intensity={1.5} 
+            luminanceThreshold={0.2} 
+            radius={0.7} 
+            mipmapBlur 
+        />
+      </EffectComposer>
     </Canvas>
   );
 };
 
-export default Clover3DModel;
+export default CloverAvatar;

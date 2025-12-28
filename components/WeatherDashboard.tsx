@@ -3,7 +3,7 @@ import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { getWeatherData } from '../services/weatherService';
 import { WeatherData } from '../types';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend, ComposedChart, Area } from 'recharts';
-import { CloudRain, Sun, Clock, MapPin, Loader2, ArrowLeft, Cloud, Wind, Droplets, Zap, CloudLightning, SunDim, Activity } from 'lucide-react';
+import { CloudRain, Sun, Clock, MapPin, Loader2, ArrowLeft, Cloud, Wind, Droplets, Zap, CloudLightning, SunDim, Activity, Calendar } from 'lucide-react';
 
 // -- WEATHER VISUALIZER COMPONENTS --
 
@@ -153,6 +153,14 @@ export const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ onBack }) =>
     }
   };
 
+  const getWeatherIcon = (cloud: number, rain: boolean) => {
+    if (rain && cloud > 80) return CloudLightning;
+    if (rain) return CloudRain;
+    if (cloud > 70) return Cloud;
+    if (cloud > 30) return SunDim;
+    return Sun;
+  };
+
   const currentStats = useMemo(() => {
     if (!data) return null;
     const cloud = data.hourly.cloudcover[0];
@@ -160,29 +168,63 @@ export const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ onBack }) =>
     const wind = data.hourly.windspeed_10m[0];
     const temp = data.hourly.temperature_2m[0];
 
-    let icon = Sun;
+    const icon = getWeatherIcon(cloud, rain);
     let label = "Optimal";
     let color = "from-yellow-500/20 to-orange-500/20";
     
     if (rain && cloud > 80) {
-        icon = CloudLightning;
         label = "Storm Front";
         color = "from-indigo-900/40 to-blue-900/40";
     } else if (rain) {
-        icon = CloudRain;
         label = "Rain Cycles";
         color = "from-blue-600/20 to-indigo-900/20";
     } else if (cloud > 70) {
-        icon = Cloud;
         label = "Overcast";
         color = "from-gray-700/30 to-indigo-900/30";
     } else if (cloud > 30) {
-        icon = SunDim;
         label = "Partial Cover";
         color = "from-cyan-900/20 to-indigo-900/20";
     }
 
     return { cloud, rain, wind, temp, icon, label, color };
+  }, [data]);
+
+  const dailyForecast = useMemo(() => {
+    if (!data) return [];
+    
+    const forecast = [];
+    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const now = new Date();
+
+    for (let day = 0; day < 7; day++) {
+        const startIndex = day * 24;
+        const endIndex = startIndex + 24;
+        const dayTemps = data.hourly.temperature_2m.slice(startIndex, endIndex);
+        const dayCloud = data.hourly.cloudcover.slice(startIndex, endIndex);
+        const dayPrecip = data.hourly.precipitation.slice(startIndex, endIndex);
+        
+        const high = Math.max(...dayTemps);
+        const low = Math.min(...dayTemps);
+        
+        // Use mid-day values for representative weather
+        const midDayIndex = startIndex + 12;
+        const midCloud = data.hourly.cloudcover[midDayIndex];
+        const midRain = data.hourly.precipitation[midDayIndex] > 0;
+        
+        const date = new Date(now);
+        date.setDate(now.getDate() + day);
+        
+        forecast.push({
+            dayName: days[date.getDay()],
+            date: date.toLocaleDateString([], { month: 'numeric', day: 'numeric' }),
+            high,
+            low,
+            icon: getWeatherIcon(midCloud, midRain),
+            precipChance: Math.round((dayPrecip.filter(p => p > 0).length / 24) * 100),
+            avgCloud: Math.round(dayCloud.reduce((a, b) => a + b, 0) / 24)
+        });
+    }
+    return forecast;
   }, [data]);
 
   if (loading) {
@@ -212,7 +254,7 @@ export const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ onBack }) =>
   });
 
   return (
-    <div className="h-full bg-[#050a10] flex flex-col overflow-y-auto no-scrollbar pb-20 relative font-sans">
+    <div className="h-full bg-[#050a10] flex flex-col overflow-y-auto no-scrollbar pb-24 relative font-sans">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(30,58,138,0.15),transparent_60%)] pointer-events-none" />
       <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none opacity-20" />
 
@@ -285,6 +327,40 @@ export const WeatherDashboard: React.FC<WeatherDashboardProps> = ({ onBack }) =>
       </div>
 
       <div className="px-6 space-y-6 relative z-10">
+        {/* 7-Day Forecast Section */}
+        <div className="bg-[#0a0f18]/80 backdrop-blur-md rounded-3xl p-1 border border-white/5 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 bg-white/5 border-b border-white/5">
+                <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                    <Calendar className="w-3 h-3 text-emerald-400" /> Strategic Outlook (7 Days)
+                </h3>
+                <span className="text-[8px] font-mono text-gray-600 tracking-tighter">DELTA_SYNC: 100%</span>
+            </div>
+            
+            <div className="p-4 space-y-3">
+                {dailyForecast.map((day, i) => (
+                    <div key={day.date} className={`flex items-center justify-between p-3 rounded-2xl border transition-all duration-300 hover:bg-white/5 ${i === 0 ? 'bg-indigo-500/10 border-indigo-500/30' : 'border-transparent'}`}>
+                        <div className="flex items-center gap-4 w-24">
+                            <span className={`text-xs font-black tracking-widest ${i === 0 ? 'text-indigo-400' : 'text-gray-400'}`}>{day.dayName}</span>
+                            <span className="text-[9px] font-mono text-gray-600">{day.date}</span>
+                        </div>
+                        
+                        <div className="flex-1 flex items-center justify-center gap-3">
+                            <day.icon className={`w-5 h-5 ${day.precipChance > 50 ? 'text-blue-400' : 'text-yellow-400'}`} />
+                            <div className="flex flex-col">
+                                <span className="text-[8px] font-bold text-gray-500 uppercase">Precip</span>
+                                <span className="text-[10px] font-mono text-gray-300">{day.precipChance}%</span>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 w-24 justify-end">
+                            <span className="text-sm font-bold text-white font-mono">{day.high}°</span>
+                            <span className="text-sm font-bold text-gray-600 font-mono">{day.low}°</span>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+
         {/* Projection Chart */}
         <div className="bg-[#0a0f18]/80 backdrop-blur-md rounded-2xl p-1 border border-white/5">
           <div className="flex items-center justify-between px-4 py-3 bg-white/5 border-b border-white/5">

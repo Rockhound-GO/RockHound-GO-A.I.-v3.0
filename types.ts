@@ -1,50 +1,37 @@
 
 import React from 'react';
 
-// --- CORE ENUMS ---
 export enum RockType {
   IGNEOUS = 'Igneous',
   SEDIMENTARY = 'Sedimentary',
   METAMORPHIC = 'Metamorphic',
   MINERAL = 'Mineral',
   FOSSIL = 'Fossil',
-  UNKNOWN = 'Unknown'
+  UNKNOWN = 'Unknown',
+  SYNTHETIC = 'Synthetic' // New class for fused assets
 }
 
-export enum UserRank {
-  NOVICE = 'Novice Scout',
-  OPERATOR = 'Field Operator',
-  SPECIALIST = 'Rock Specialist',
-  VETERAN = 'Veteran Geologist',
-  ELITE = 'Elite Sentinel',
-  ARCHITECT = 'System Architect'
+export interface FusionMetadata {
+  parentAId: string;
+  parentBId: string;
+  fusionStability: number; // 0.0 to 1.0
+  fusionDate: number;
 }
 
-// --- ENTITY INTERFACES ---
-
-export interface Badge {
-  id: string;
-  name: string;
-  description: string;
-  icon: string; // Lucide icon name or URL
-  dateUnlocked: string;
-}
-
+// Added OperatorStats interface to fix line 30 error and missing type in api.ts
 export interface OperatorStats {
   totalScans: number;
-  distanceTraveled: number; // in km
+  distanceTraveled: number;
   uniqueSpeciesFound: number;
   legendaryFinds: number;
   highestRarityFound: number;
   scanStreak: number;
 }
 
-export interface UserSettings {
-  theme: 'cyber_dark' | 'tactical_light' | 'high_contrast';
-  hapticsEnabled: boolean;
-  audioEnabled: boolean;
-  notifications: boolean;
-  dataSaver: boolean;
+// Added Badge interface to fix missing type in api.ts
+export interface Badge {
+  id: string;
+  dateUnlocked: number;
 }
 
 export interface User {
@@ -56,101 +43,56 @@ export interface User {
   level: number;
   rankTitle?: string;
   avatarUrl?: string;
-  createdAt?: string;
-  isAdmin?: boolean;
   operatorStats?: OperatorStats;
-  badges?: Badge[];
-  settings?: UserSettings;
+  credits?: number;
 }
-
-// --- GEOLOGICAL DATA ---
 
 export interface RockAnalysis {
   name: string;
   type: RockType;
   scientificName: string;
   description: string;
-  rarityScore: number; // 1-100
-  hardness: number; // Mohs scale 1-10
+  rarityScore: number;
+  hardness: number;
   color: string[];
   composition: string[];
   funFact: string;
-  comparisonImageUrl?: string;
-  
-  // Clover's Master's Insights
-  isGeologicalSpecimen: boolean; // Instruction: Handle non-rock rejections
-  formationGenesis: string; // How it formed (petrology)
-  expertExplanation: string; // High-level explanation for the user
+  isGeologicalSpecimen: boolean;
+  formationGenesis: string;
+  expertExplanation: string;
   bonusXP: {
     rarity: number;
     expertEye: number;
   };
-
-  // AI Metadata (The "Science" Layer)
-  aiConfidence?: number;
-  modelVersion?: string;
-  spectralHash?: string; // For future spectral analysis features
+  estimatedValue: number; 
+  marketInsight: string;
+  spectralWaveform: number[];
+  refinementLevel: number;
+  geologicalLore?: string;
+  molecularStructure?: string;
+  // NEW: Fusion data
+  fusionData?: FusionMetadata;
 }
 
 export interface Rock extends RockAnalysis {
   id: string;
-  userId: string; // Owner ID
-  dateFound: number; // timestamp
+  userId: string;
+  dateFound: number;
   imageUrl: string;
-  location?: {
-    lat: number;
-    lng: number;
-  };
+  comparisonImageUrl?: string;
+  location?: { lat: number; lng: number };
   status: 'approved' | 'pending' | 'flagged';
-  manualCorrection?: string;
-  scanWaveform?: number[]; // For audio visualization of the scan
-}
-
-// --- GAMIFICATION & MISSIONS ---
-
-export interface DailyBounty {
-  id: string;
-  targetMineral: string;
-  locationName: string;
-  geologicalReason: string;
-  xpMultiplier: number;
-  expiresAt: number;
-}
-
-export interface GeologicalZone {
-  id: string;
-  type: 'METAMORPHIC' | 'ALLUVIAL' | 'IGNEOUS_PLUTONIC' | 'HYDROTHERMAL';
-  coordinates: [number, number]; // lat, lng center
-  radius: number; // meters
-  access: 'PUBLIC' | 'PRIVATE';
-  name: string;
-  description: string;
-  likelyMinerals: string[];
-}
-
-export interface Challenge {
-  id: string;
-  title: string;
-  description: string;
-  targetType?: RockType;
-  minRarity?: number;
-  xpReward: number;
-  isCompleted: boolean;
-  expiresAt?: number;
 }
 
 export interface Achievement {
   id: string;
   title: string;
   description: string;
-  icon: React.ElementType;
+  icon: React.ComponentType<any>;
   xpReward: number;
   goal: number;
   progress: (user: User, rocks: Rock[]) => number;
-  isHidden?: boolean; // Secret achievements
 }
-
-// --- ENVIRONMENTAL DATA ---
 
 export interface WeatherHourly {
   time: string[];
@@ -161,8 +103,8 @@ export interface WeatherHourly {
   temperature_2m_previous_day4: number[];
   temperature_2m_previous_day5: number[];
   cloudcover: number[];
-  precipitation: number[]; 
-  windspeed_10m: number[]; 
+  precipitation: number[];
+  windspeed_10m: number[];
 }
 
 export interface WeatherData {
@@ -173,28 +115,27 @@ export interface WeatherData {
   timezone: string;
   timezone_abbreviation: string;
   elevation: number;
-  hourly_units: {
-    time: string;
-    temperature_2m: string;
-    temperature_2m_previous_day1: string;
-    temperature_2m_previous_day2: string;
-    temperature_2m_previous_day3: string;
-    temperature_2m_previous_day4: string;
-    temperature_2m_previous_day5: string;
-    cloudcover: string;
-    precipitation: string;
-    windspeed_10m: string;
-  };
+  hourly_units: any;
   hourly: WeatherHourly;
 }
 
-// --- SYSTEM TELEMETRY ---
+// Added DailyBounty interface to fix missing type in geminiService.ts and Home.tsx
+export interface DailyBounty {
+  targetMineral: string;
+  xpMultiplier: number;
+  locationName: string;
+  geologicalReason: string;
+  expiresAt: number;
+}
 
-export interface SystemLog {
+// Added GeologicalZone interface to fix missing type in UserMap.tsx
+export interface GeologicalZone {
   id: string;
-  timestamp: number;
-  level: 'INFO' | 'WARN' | 'CRITICAL';
-  module: string;
-  message: string;
-  metadata?: any;
+  type: 'METAMORPHIC' | 'ALLUVIAL' | 'IGNEOUS' | 'SEDIMENTARY';
+  name: string;
+  coordinates: [number, number];
+  radius: number;
+  access: 'PUBLIC' | 'PRIVATE';
+  description: string;
+  likelyMinerals: string[];
 }

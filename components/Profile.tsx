@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { User, api } from '../services/api';
 import { Rock } from '../types';
-import { Camera, Edit2, Save, X, User as UserIcon, Mail, Calendar, Upload, PlayCircle, Shield, Award, Zap, Activity, Microscope, PackageSearch, Sparkles } from 'lucide-react';
+import { Camera, Edit2, Save, X, User as UserIcon, Mail, Calendar, Upload, PlayCircle, Shield, Award, Zap, Activity, Microscope, PackageSearch, Sparkles, Scale } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 // -- AUDIO ENGINE (Local) --
@@ -102,16 +102,23 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onBack, on
     const targetHardness = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].find(h => !hardnessSet.has(h));
     
     const hasPyrite = rocks.some(r => r.name.toLowerCase().includes('pyrite'));
+    const uniqueTypes = new Set(rocks.map(r => r.type));
+
+    let advice = `Collection analysis complete, ${user.username}. `;
     
-    let advice = "Collection analysis complete. ";
     if (targetHardness) {
-       advice += `You're missing Hardness ${targetHardness} on the Mohs Scale. Try to track down a ${targetHardness === 1 ? 'Talc' : targetHardness === 8 ? 'Topaz' : 'representative specimen'} next. `;
+       advice += `You're tracking the 'Mohs Hardness Scale'. You've logged Hardness ${Array.from(hardnessSet).join(', ')}. Try to find a ${targetHardness === 1 ? 'Talc' : targetHardness === 10 ? 'Diamond' : targetHardness === 8 ? 'Topaz' : 'specimen with hardness ' + targetHardness} next. `;
     }
+
+    if (uniqueTypes.size >= 3) {
+       advice += "Excellent variety in Rock Origins—you have igneous, sedimentary, and metamorphic assets. ";
+    }
+
     if (hasPyrite) {
-       advice += "Note: Keep your Pyrite in a low-humidity environment to prevent 'pyrite decay' and sulfuric acid formation.";
+       advice += "Preservation alert: Your Pyrite is geochemically sensitive. Keep it in a dry, sealed container to prevent 'pyrite decay' which can form sulfuric acid.";
     }
     return advice;
-  }, [rocks]);
+  }, [rocks, user.username]);
 
   const handleMouseMove = (e: React.MouseEvent) => {
     if (!cardRef.current) return;
@@ -217,12 +224,15 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onBack, on
               <div className="absolute top-0 right-0 p-4 opacity-10"><Microscope size={80} /></div>
               <div className="flex items-center gap-3 mb-4">
                   <Sparkles size={16} className="text-emerald-400 animate-pulse" />
-                  <h2 className="text-xs font-black text-emerald-400 uppercase tracking-[0.2em]">Clover's Collection Curation</h2>
+                  <h2 className="text-xs font-black text-emerald-400 uppercase tracking-[0.2em]">Clover's Curated Insights</h2>
               </div>
               <p className="text-sm text-gray-200 leading-relaxed font-sans italic">"{curatorNote}"</p>
-              <div className="mt-6 flex items-center gap-2">
-                  <div className="p-2 bg-emerald-500/20 rounded-lg"><PackageSearch size={14} className="text-emerald-400" /></div>
-                  <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Master's Level Guidance Active</span>
+              <div className="mt-6 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="p-2 bg-emerald-500/20 rounded-lg"><Scale size={14} className="text-emerald-400" /></div>
+                    <span className="text-[10px] text-emerald-500 font-black uppercase tracking-widest">Hardness Scaling: Active</span>
+                  </div>
+                  <div className="text-[9px] text-emerald-400/60 font-mono">MSc_LEVEL_GUIDANCE</div>
               </div>
           </div>
       </div>

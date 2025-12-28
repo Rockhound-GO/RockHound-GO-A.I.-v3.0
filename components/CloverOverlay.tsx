@@ -3,10 +3,10 @@ import React, { useState, useEffect, useRef, lazy, Suspense, useCallback } from 
 import { User } from '../services/api';
 import { generateRockSpeech, generateCloverDialogue } from '../services/geminiService';
 import { Flower, Trophy, Map, Sparkles, Loader2, X, Activity, Radio, Cpu, ShieldAlert, Zap, Compass } from 'lucide-react';
-import { decode, decodeAudioData } from '../services/audioUtils';
+import { decode, decodeAudioData, getGlobalAudioContext, registerSource, setSpeechSource, stopAllSources } from '../services/audioUtils';
 import toast from 'react-hot-toast';
 
-const Clover3DModel = lazy(() => import('./Clover3DModel').then(module => ({ default: module.Clover3DModel })));
+const CloverAvatar = lazy(() => import('./Clover3DModel').then(module => ({ default: module.CloverAvatar })));
 
 interface CloverOverlayProps {
   user: User;
@@ -22,35 +22,28 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const [isThinking, setIsThinking] = useState(false);
   const [opacity, setOpacity] = useState(0);
   const [interactionState, setInteractionState] = useState<'SCRIPT' | 'MENU'>('SCRIPT');
-  const [currentMood, setCurrentMood] = useState('ANALYTICAL');
   
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const [currentViseme, setCurrentViseme] = useState(0);
   const [audioAmplitude, setAudioAmplitude] = useState(0);
-  const audioSourceRef = useRef<AudioBufferSourceNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const visemeDataRef = useRef<{time: number, value: number}[]>([]);
-  const audioPlaybackTimeRef = useRef(0);
 
   const [activeMode, setActiveMode] = useState<'INTRO' | 'MENU' | 'TOUR' | 'CHALLENGE' | 'REWARD' | 'SCOUTING'>(initialMode);
   const currentScriptResolve = useRef<(() => void) | null>(null);
-
-  const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current) {
-        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-        if (AudioContextClass) {
-            audioContextRef.current = new AudioContextClass({ sampleRate: 24000 });
-        }
-    }
-    return audioContextRef.current;
-  }, []);
+  
+  const scriptExecutionId = useRef(0);
+  const lastTypeSoundTime = useRef(0);
 
   const playFx = useCallback((type: 'open' | 'close' | 'type' | 'scout') => {
-    const ctx = getAudioContext();
+    const ctx = getGlobalAudioContext();
     if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume();
     
+    // Throttle type sounds to prevent oscillator stacking
+    if (type === 'type') {
+      const now = performance.now();
+      if (now - lastTypeSoundTime.current < 40) return;
+      lastTypeSoundTime.current = now;
+    }
+
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     
@@ -73,21 +66,49 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
     } else {
         osc.type = 'square';
         osc.frequency.setValueAtTime(800, ctx.currentTime);
-        gain.gain.setValueAtTime(0.01, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03);
+        gain.gain.setValueAtTime(0.005, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.03);
     }
 
     osc.connect(gain);
     gain.connect(ctx.destination);
+    registerSource(osc);
     osc.start();
     osc.stop(ctx.currentTime + 0.5);
-  }, [getAudioContext]);
+  }, []);
+
+  const stopAudio = useCallback(() => {
+    setSpeechSource(null);
+    if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+    }
+    setAudioAmplitude(0);
+    setIsTalking(false);
+    
+    if (currentScriptResolve.current) {
+        currentScriptResolve.current();
+        currentScriptResolve.current = null;
+    }
+  }, []);
+
+  const lastViewRef = useRef(currentView);
 
   useEffect(() => {
+    // Increment execution ID to cancel any in-flight scripts from previous effects
+    const currentId = ++scriptExecutionId.current;
+    
+    if (currentView !== lastViewRef.current && initialMode !== 'TOUR') {
+        lastViewRef.current = currentView;
+        return;
+    }
+    lastViewRef.current = currentView;
+
     playFx(activeMode === 'SCOUTING' ? 'scout' : 'open');
     const timer = setTimeout(() => setOpacity(1), 50);
     
     const init = async () => {
+        if (currentId !== scriptExecutionId.current) return;
         if (initialMode === 'INTRO') await playIntroScript();
         else if (initialMode === 'TOUR') await playTourScript();
         else if (initialMode === 'CHALLENGE') await playChallengeScript();
@@ -101,41 +122,26 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
     init();
 
     return () => {
+        scriptExecutionId.current++;
         clearTimeout(timer);
         stopAudio();
     };
-  }, [initialMode, currentView, user]);
+  }, [initialMode, currentView, user, stopAudio, playFx, scoutingContext]);
 
-  const stopAudio = () => {
-      if (audioSourceRef.current) {
-        audioSourceRef.current.stop();
-        audioSourceRef.current.disconnect();
-        audioSourceRef.current = null;
-      }
-      if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
-          animationFrameRef.current = null;
-      }
-      setCurrentViseme(0);
-      setAudioAmplitude(0);
-      setIsTalking(false);
-      audioPlaybackTimeRef.current = 0;
-  };
-
-  const playAudioWithLipSync = async (text: string) => {
+  const playAudioWithLipSync = async (text: string, currentId: number) => {
+      if (currentId !== scriptExecutionId.current) return;
       stopAudio();
+
       try {
           setIsTalking(true);
-          const ctx = getAudioContext();
+          const ctx = getGlobalAudioContext();
           if (!ctx) throw new Error("Audio unavailable");
 
-          const { audioData, visemes } = await generateRockSpeech(text);
-          visemeDataRef.current = visemes;
-          
+          const { audioData } = await generateRockSpeech(text);
+          if (currentId !== scriptExecutionId.current) return;
+
           const audioBytes = decode(audioData);
           const buffer = await decodeAudioData(audioBytes, ctx, 24000, 1);
-
-          if (ctx.state === 'suspended') await ctx.resume();
 
           const source = ctx.createBufferSource();
           source.buffer = buffer;
@@ -146,34 +152,21 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
 
           source.connect(analyser);
           analyser.connect(ctx.destination);
-          const startTime = ctx.currentTime;
 
           const animate = () => {
-            if (!audioSourceRef.current) return;
-            audioPlaybackTimeRef.current = (ctx.currentTime - startTime) * 1000;
-            let activeViseme = 0;
-            for (let i = visemeDataRef.current.length - 1; i >= 0; i--) {
-                if (visemeDataRef.current[i].time <= audioPlaybackTimeRef.current) {
-                    activeViseme = visemeDataRef.current[i].value;
-                    break;
-                }
-            }
-            setCurrentViseme(activeViseme);
-            analyser.getByteFrequencyData(dataArray);
-            setAudioAmplitude(dataArray.reduce((a, b) => a + b) / dataArray.length);
+            if (currentId !== scriptExecutionId.current || !analyserRef.current) return;
+            analyserRef.current.getByteFrequencyData(dataArray);
+            const amplitude = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            setAudioAmplitude(amplitude);
             animationFrameRef.current = requestAnimationFrame(animate);
           };
 
           source.onended = () => {
-              stopAudio();
-              if (currentScriptResolve.current) {
-                currentScriptResolve.current();
-                currentScriptResolve.current = null;
-              }
+              if (currentId === scriptExecutionId.current) stopAudio();
           };
           
+          setSpeechSource(source);
           source.start();
-          audioSourceRef.current = source;
           animate();
 
           return new Promise<void>((resolve) => {
@@ -181,24 +174,27 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
           });
       } catch (e: any) {
           setIsTalking(false);
-          await typeLine(text);
-          if (currentScriptResolve.current) {
-            currentScriptResolve.current();
-            currentScriptResolve.current = null;
-          }
+          await typeLine(text, currentId);
       }
   };
 
   const playScript = async (lines: string[]) => {
+      const currentId = scriptExecutionId.current;
       setInteractionState('SCRIPT');
+      
       for (const line of lines) {
+          if (currentId !== scriptExecutionId.current) return;
           setDisplayedText(line);
-          await playAudioWithLipSync(line);
-          await new Promise(r => setTimeout(r, 400)); // Slightly longer pause between lines for better digestion
+          await playAudioWithLipSync(line, currentId);
+          await new Promise(r => setTimeout(r, 40));
       }
       
+      if (currentId !== scriptExecutionId.current) return;
+
       if (['INTRO', 'TOUR', 'SCOUTING'].includes(activeMode)) {
-          setTimeout(handleClose, 3000); // Give users more time to read the last line of the intro/scout
+          setTimeout(() => {
+              if (currentId === scriptExecutionId.current) handleClose();
+          }, 2000);
       } else {
           setInteractionState('MENU');
           setDisplayedText("Status: Green. Awaiting next directive.");
@@ -206,19 +202,19 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   };
 
   const playIntroScript = async () => {
-      setActiveMode('INTRO'); setIsThinking(true); setCurrentMood('PROFESSIONAL');
+      setActiveMode('INTRO'); setIsThinking(true);
       const script = await generateCloverDialogue('INTRO', { username: user.username, level: user.level });
       setIsThinking(false); await playScript(script);
   };
 
   const playTourScript = async () => {
-      setActiveMode('TOUR'); setIsThinking(true); setCurrentMood('ANALYTICAL');
+      setActiveMode('TOUR'); setIsThinking(true);
       const script = await generateCloverDialogue('TOUR', { view: currentView, username: user.username, level: user.level });
       setIsThinking(false); await playScript(script);
   };
 
   const playScoutingScript = async () => {
-      setActiveMode('SCOUTING'); setIsThinking(true); setCurrentMood('ENCOURAGING');
+      setActiveMode('SCOUTING'); setIsThinking(true);
       const script = await generateCloverDialogue('SCOUTING', { 
         report: scoutingContext, 
         username: user.username, 
@@ -228,22 +224,27 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   };
 
   const playChallengeScript = async () => {
-      setActiveMode('CHALLENGE'); setIsThinking(true); setCurrentMood('SERIOUS');
+      setActiveMode('CHALLENGE'); setIsThinking(true);
       const script = await generateCloverDialogue('CHALLENGE', { username: user.username, level: user.level });
       setIsThinking(false); await playScript(script);
   };
 
   const playRewardScript = async () => {
-      setActiveMode('REWARD'); setIsThinking(true); setCurrentMood('EXCITED');
+      setActiveMode('REWARD'); setIsThinking(true);
       const script = await generateCloverDialogue('REWARD', { username: user.username, level: user.level });
       setIsThinking(false); await playScript(script);
   };
 
-  const typeLine = (line: string) => {
+  const typeLine = (line: string, currentId: number) => {
       return new Promise<void>((resolve) => {
           setIsTalking(true);
           let i = 0;
           const interval = setInterval(() => {
+              if (currentId !== scriptExecutionId.current) {
+                  clearInterval(interval);
+                  resolve();
+                  return;
+              }
               setDisplayedText(line.substring(0, i + 1));
               playFx('type');
               i++;
@@ -252,11 +253,12 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
                   setIsTalking(false);
                   resolve();
               }
-          }, 30);
+          }, 15);
       });
   };
 
   const handleClose = () => {
+      scriptExecutionId.current++;
       setOpacity(0);
       playFx('close');
       stopAudio();
@@ -272,6 +274,13 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
   const accentColor = isReward ? 'text-yellow-400' : isTour ? 'text-cyan-400' : isChallenge ? 'text-purple-400' : isScouting ? 'text-emerald-400' : 'text-blue-400';
   const borderColor = isReward ? 'border-yellow-500/50' : isTour ? 'border-cyan-500/50' : isChallenge ? 'border-purple-500/50' : isScouting ? 'border-emerald-500/50' : 'border-blue-500/50';
 
+  let cloverMood: 'IDLE' | 'LISTENING' | 'THINKING' = 'IDLE';
+  if (isThinking) {
+    cloverMood = 'THINKING';
+  } else if (isTalking) {
+    cloverMood = 'LISTENING';
+  }
+
   return (
     <div className={`fixed inset-0 z-50 flex items-end justify-center transition-opacity duration-500`} style={{ opacity }}>
         <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={handleClose} />
@@ -280,11 +289,9 @@ export const CloverOverlay: React.FC<CloverOverlayProps> = ({ user, onDismiss, c
              <div className="w-full max-w-lg aspect-square relative animate-[hologram-drift_6s_ease-in-out_infinite]">
                  <div className={`absolute bottom-0 left-1/2 -translate-x-1/2 w-64 h-12 bg-[radial-gradient(ellipse_at_center,var(--tw-gradient-stops))] from-${accentColor.split('-')[1]}-500/40 to-transparent blur-xl`} />
                  <Suspense fallback={<div className="flex items-center justify-center h-full"><Loader2 className={`w-12 h-12 ${accentColor} animate-spin`} /></div>}>
-                   <Clover3DModel 
-                     isTalking={isTalking}
-                     currentViseme={currentViseme}
-                     audioPlaybackTime={audioPlaybackTimeRef.current}
-                     mood={currentMood}
+                   <CloverAvatar 
+                     mood={cloverMood}
+                     listeningAmplitude={audioAmplitude}
                    />
                  </Suspense>
              </div>
