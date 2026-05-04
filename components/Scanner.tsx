@@ -210,10 +210,10 @@ export const Scanner: React.FC<ScannerProps> = ({ user, onRockDetected }) => {
 
              <div className="flex justify-between items-end">
                 <div className="flex gap-3">
-                    <button onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')} className="p-5 bg-black/80 rounded-3xl border border-white/10 text-white pointer-events-auto active:scale-90 transition-transform">
+                    <button aria-label="Switch camera" onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')} className="p-5 bg-black/80 rounded-3xl border border-white/10 text-white pointer-events-auto active:scale-90 transition-transform">
                         <RotateCcw size={24} />
                     </button>
-                    <button onClick={() => setIsTorchOn(!isTorchOn)} className={`p-5 rounded-3xl border pointer-events-auto transition-all ${isTorchOn ? 'bg-yellow-400 border-yellow-400 text-black shadow-[0_0_20px_#facc15]' : 'bg-black/80 border-white/10 text-white'}`}>
+                    <button aria-label={isTorchOn ? "Turn off flashlight" : "Turn on flashlight"} onClick={() => setIsTorchOn(!isTorchOn)} className={`p-5 rounded-3xl border pointer-events-auto transition-all ${isTorchOn ? 'bg-yellow-400 border-yellow-400 text-black shadow-[0_0_20px_#facc15]' : 'bg-black/80 border-white/10 text-white'}`}>
                         {isTorchOn ? <Flashlight size={24} /> : <FlashlightOff size={24} />}
                     </button>
                 </div>
@@ -236,6 +236,7 @@ export const Scanner: React.FC<ScannerProps> = ({ user, onRockDetected }) => {
                     <div className="w-12 h-[1px] bg-white/10" />
                 </div>
                 <button 
+                    aria-label="Start deep scan"
                     onMouseDown={startDeepScan} onMouseUp={cancelDeepScan} onTouchStart={startDeepScan} onTouchEnd={cancelDeepScan}
                     className="relative w-28 h-28 group"
                 >
