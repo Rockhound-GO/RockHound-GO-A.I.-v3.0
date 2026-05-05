@@ -65,7 +65,7 @@ export const FusionLab: React.FC<FusionLabProps> = ({ rocks, onBack, onFused }) 
 
             <header className="p-6 flex items-center justify-between border-b border-white/5 bg-black/40 backdrop-blur-xl">
                 <div className="flex items-center gap-4">
-                    <button onClick={onBack} className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400">
+                    <button aria-label="Close Fusion Lab" onClick={onBack} className="p-2.5 rounded-xl bg-white/5 border border-white/10 text-gray-400">
                         <X size={20} />
                     </button>
                     <div>
