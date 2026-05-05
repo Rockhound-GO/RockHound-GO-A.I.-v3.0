@@ -183,6 +183,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             <button 
                 onClick={() => { playSound('click'); onBack(); }} 
                 onMouseEnter={() => playSound('hover')}
+                aria-label="Go back"
                 className="p-2 rounded-lg border border-white/10 hover:bg-cyan-900/20 hover:border-cyan-500/50 hover:text-cyan-400 text-gray-400 transition-all group"
             >
                 <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
