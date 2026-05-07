@@ -210,10 +210,10 @@ export const Scanner: React.FC<ScannerProps> = ({ user, onRockDetected }) => {
 
              <div className="flex justify-between items-end">
                 <div className="flex gap-3">
-                    <button onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')} className="p-5 bg-black/80 rounded-3xl border border-white/10 text-white pointer-events-auto active:scale-90 transition-transform">
+                    <button aria-label="Switch Camera" onClick={() => setFacingMode(f => f === 'user' ? 'environment' : 'user')} className="p-5 bg-black/80 rounded-3xl border border-white/10 text-white pointer-events-auto active:scale-90 transition-transform">
                         <RotateCcw size={24} />
                     </button>
-                    <button onClick={() => setIsTorchOn(!isTorchOn)} className={`p-5 rounded-3xl border pointer-events-auto transition-all ${isTorchOn ? 'bg-yellow-400 border-yellow-400 text-black shadow-[0_0_20px_#facc15]' : 'bg-black/80 border-white/10 text-white'}`}>
+                    <button aria-label="Toggle Flashlight" onClick={() => setIsTorchOn(!isTorchOn)} className={`p-5 rounded-3xl border pointer-events-auto transition-all ${isTorchOn ? 'bg-yellow-400 border-yellow-400 text-black shadow-[0_0_20px_#facc15]' : 'bg-black/80 border-white/10 text-white'}`}>
                         {isTorchOn ? <Flashlight size={24} /> : <FlashlightOff size={24} />}
                     </button>
                 </div>

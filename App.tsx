@@ -211,8 +211,8 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center gap-5">
             <SyncStatus isSyncing={isSyncing} />
-            <button onClick={() => handleViewChange(View.FUSION)} className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-all"><Beaker size={20} /></button>
-            <button onClick={() => setShowClover(true)} className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 transition-all"><Cpu size={20} /></button>
+            <button aria-label="Open Fusion Lab" onClick={() => handleViewChange(View.FUSION)} className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-all"><Beaker size={20} /></button>
+            <button aria-label="Open AI Assistant" onClick={() => setShowClover(true)} className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 transition-all"><Cpu size={20} /></button>
         </div>
       </header>
 
