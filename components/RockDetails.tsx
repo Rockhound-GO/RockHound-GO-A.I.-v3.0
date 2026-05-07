@@ -31,7 +31,7 @@ export const RockDetails: React.FC<{ rock: Rock; onBack: () => void; onDelete: (
          <div className="absolute inset-0 bg-gradient-to-t from-[#030508] via-[#030508]/60 to-transparent" />
          
          <div className="absolute inset-0 p-8 flex flex-col justify-end">
-            <button onClick={onBack} className="absolute top-12 left-6 p-4 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-xl z-20 active:scale-90 transition-transform">
+            <button aria-label="Go Back" onClick={onBack} className="absolute top-12 left-6 p-4 rounded-2xl bg-black/60 border border-white/10 backdrop-blur-xl z-20 active:scale-90 transition-transform">
                 <ArrowLeft className="w-6 h-6" />
             </button>
             <div className="relative z-10 animate-in slide-in-from-bottom-4 duration-700">
