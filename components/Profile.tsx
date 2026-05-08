@@ -169,7 +169,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onUpdateUser, onBack, on
         <h2 className="text-2xl font-bold text-white tracking-widest font-mono flex items-center gap-3">
             <Shield className="w-6 h-6 text-cyan-500" /> OPERATOR_ID
         </h2>
-        <button onClick={() => { playSound('click'); onBack(); }} className="p-2 rounded-full text-gray-400 hover:text-white transition-colors border border-transparent hover:border-white/10"><X className="w-6 h-6" /></button>
+        <button aria-label="Close Profile" onClick={() => { playSound('click'); onBack(); }} className="p-2 rounded-full text-gray-400 hover:text-white transition-colors border border-transparent hover:border-white/10 focus-visible:ring-2 focus-visible:ring-indigo-500 focus:outline-none"><X className="w-6 h-6" /></button>
       </div>
 
       <div className="flex-none flex items-center justify-center p-6 relative z-10">
