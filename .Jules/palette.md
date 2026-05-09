@@ -1,0 +1,3 @@
+## 2024-05-15 - Missing Accessible Names on HUD Modules
+**Learning:** HUD-style interfaces often rely entirely on visual metaphors (like an icon in a glowing circle) to indicate functionality. This causes a critical accessibility barrier for screen readers, as the icon-only buttons provide no textual context, leaving non-visual users to guess the button's purpose (e.g., encountering a "button" instead of an "Open Fusion Lab button").
+**Action:** Always add descriptive `aria-label` attributes to any icon-only interactive elements, especially in highly stylized or gamified UI components where text labels are intentionally omitted for aesthetic reasons.
