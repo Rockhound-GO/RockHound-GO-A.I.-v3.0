@@ -128,8 +128,18 @@ export const CloverButton: React.FC<CloverButtonProps> = ({ onClick }) => {
     };
   }, [isDragging]);
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label="Open Clover AI Assistant"
       style={{ 
         position: 'fixed', 
         left: `${position.x}px`, 
@@ -138,12 +148,13 @@ export const CloverButton: React.FC<CloverButtonProps> = ({ onClick }) => {
         zIndex: 60,
         transition: isDragging ? 'none' : 'transform 0.1s ease-out'
       }}
-      className="cursor-pointer group perspective-1000"
+      className="cursor-pointer group perspective-1000 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-black rounded-full"
       onMouseDown={(e) => handleStart(e.clientX, e.clientY)}
       onTouchStart={(e) => handleStart(e.touches[0].clientX, e.touches[0].clientY)}
       onMouseEnter={() => { setIsHovered(true); playSound('hover'); }}
       onMouseLeave={() => setIsHovered(false)}
       onClick={() => !isDragging && onClick()}
+      onKeyDown={handleKeyDown}
     >
       <style>{`
         @keyframes reactor-spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
