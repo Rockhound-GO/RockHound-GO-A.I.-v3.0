@@ -196,7 +196,19 @@ const App: React.FC = () => {
       )}
 
       <header className="flex-none bg-[#050a10]/60 backdrop-blur-2xl border-b border-white/5 px-6 py-5 flex items-center justify-between z-40">
-        <div className="flex items-center gap-4 cursor-pointer" onClick={() => handleViewChange(View.PROFILE)}>
+        <div
+          className="flex items-center gap-4 cursor-pointer focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none rounded-lg p-1"
+          onClick={() => handleViewChange(View.PROFILE)}
+          role="button"
+          tabIndex={0}
+          aria-label="User Profile"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              handleViewChange(View.PROFILE);
+            }
+          }}
+        >
           <div className="w-12 h-12 rounded-2xl overflow-hidden border-2 border-indigo-500/50 shadow-lg">
             {user.avatarUrl ? <img src={user.avatarUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-indigo-900 flex items-center justify-center font-bold">{user.username[0]}</div>}
           </div>
@@ -211,8 +223,8 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center gap-5">
             <SyncStatus isSyncing={isSyncing} />
-            <button onClick={() => handleViewChange(View.FUSION)} className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-all"><Beaker size={20} /></button>
-            <button onClick={() => setShowClover(true)} className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 transition-all"><Cpu size={20} /></button>
+            <button aria-label="Fusion Lab" onClick={() => handleViewChange(View.FUSION)} className="p-3 rounded-2xl bg-purple-500/10 border border-purple-500/30 text-purple-400 hover:bg-purple-500/20 transition-all focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"><Beaker size={20} /></button>
+            <button aria-label="Toggle Clover" onClick={() => setShowClover(true)} className="p-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 hover:bg-indigo-500/20 transition-all focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none"><Cpu size={20} /></button>
         </div>
       </header>
 
@@ -231,8 +243,8 @@ const App: React.FC = () => {
           <NavButton active={currentView === View.HOME} onClick={() => handleViewChange(View.HOME)} icon={HomeIcon} label="Command" />
           <NavButton active={currentView === View.MAP} onClick={() => handleViewChange(View.MAP)} icon={MapIcon} label="Telemetry" />
           <div className="relative -top-10">
-             <button onClick={() => handleViewChange(View.SCANNER)} className="w-24 h-24 rounded-full bg-gradient-to-tr from-cyan-400 via-indigo-600 to-purple-600 p-[3px] shadow-[0_0_50px_rgba(79,70,229,0.5)] active:scale-90 transition-transform">
-                <div className="w-full h-full rounded-full bg-black flex items-center justify-center relative overflow-hidden">
+             <button aria-label="Scanner" onClick={() => handleViewChange(View.SCANNER)} className="w-24 h-24 rounded-full bg-gradient-to-tr from-cyan-400 via-indigo-600 to-purple-600 p-[3px] shadow-[0_0_50px_rgba(79,70,229,0.5)] active:scale-90 transition-transform focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:outline-none">
+                <div className="w-full h-full rounded-full bg-black flex items-center justify-center relative overflow-hidden rounded-full">
                     <div className="absolute inset-0 bg-indigo-500/10 animate-pulse" />
                     <ScanLine className="w-10 h-10 text-white" />
                 </div>
